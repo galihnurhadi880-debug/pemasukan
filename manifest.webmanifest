@@ -1,0 +1,17 @@
+{
+  "name": "Buku Pemasukan",
+  "short_name": "Pemasukan",
+  "description": "Pencatatan pemasukan online shop: 10 rekening Yucho, PayPay, dan rekening Indonesia.",
+  "lang": "id",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#EAF1ED",
+  "theme_color": "#0A7B54",
+  "icons": [
+    {"src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+    {"src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ]
+}
