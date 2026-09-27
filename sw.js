@@ -1,5 +1,5 @@
 // Buku Pemasukan - offline support. Ganti VERSION setiap kali file aplikasi diperbarui.
-const VERSION = 'bp-v1';
+const VERSION = 'bp-v2';
 const CORE = ['./', './index.html', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'];
 
 self.addEventListener('install', e => {
