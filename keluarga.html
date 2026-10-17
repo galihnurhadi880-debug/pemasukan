@@ -372,24 +372,91 @@ function monthEntries(){
   return out;
 }
 
-/* ---------- storage: local ---------- */
-function loadLocal(){
-  local=LS.get('bp.data')||{days:{}}; if(!local.days) local.days={};
-  S.cfg=normCfg(LS.get('bp.cfg'));
+/* ---------- cloud storage ---------- */
+function stopPeriod(){periodUnsubs.forEach(fn=>{try{fn()}catch(e){}});periodUnsubs=[]}
+function stopAll(){stopPeriod();if(acctUnsub){try{acctUnsub()}catch(e){}acctUnsub=null}}
+function groupEntries(list){
+  const days={};
+  list.forEach(e=>{if(!days[e.date])days[e.date]={};days[e.date][e.id]=e});
+  return days;
 }
-function saveLocal(){ if(!LS.set('bp.data',local)) toast('Penyimpanan HP penuh. Cadangkan lalu kosongkan ruang.') }
-function localMonth(){
-  var r=periodRange(S.month), d={}; Object.keys(local.days).forEach(function(k){ if(k>=r.start&&k<=r.end) d[k]=local.days[k] }); S.days=d;
+function fromAccount(s){
+  const a=s.data(),currency=a.currency==="IDR"?"IDR":"JPY";
+  return {id:s.id,name:String(a.name||"Rekening"),no:typeof a.no==="string"?a.no:"",
+    currency,type:currency==="IDR"?"idr":a.type==="yucho"?"yucho":"paypay",active:a.active!==false};
 }
-
-/* ---------- store API ---------- */
+function watchAccounts(){
+  if(acctUnsub){acctUnsub();acctUnsub=null}
+  acctUnsub=onSnapshot(collection(db,"families",FAMILY_ID,"accounts"),snapshot=>{
+    S.cfg.accounts=snapshot.docs.map(fromAccount).sort((a,b)=>a.name.localeCompare(b.name,"id"));
+    if(S.tab!=="add"&&S.tab!=="settings")refresh();
+  },e=>toast(cloudError(e)));
+}
+function watchMonth(){
+  stopPeriod();if(!me)return;
+  const current=S.month,user=me.uid,other=user===ownerUid?spouseUid:ownerUid,r=periodRange(current);
+  S.days={};myTotal=null;spouseTotal=null;
+  const q=query(txCollection(user),where("date",">=",r.start),where("date","<=",r.end));
+  periodUnsubs.push(onSnapshot(q,s=>{
+    if(!me||me.uid!==user||S.month!==current)return;
+    S.days=groupEntries(s.docs.map(d=>({id:d.id,...d.data()})));refresh();
+  },e=>toast(cloudError(e))));
+  periodUnsubs.push(onSnapshot(summaryRef(user,current),s=>{
+    if(!me||me.uid!==user||S.month!==current)return;
+    myTotal=s.exists()?s.data():null;
+    if(S.tab==="home")refresh();
+  },e=>toast(cloudError(e))));
+  periodUnsubs.push(onSnapshot(summaryRef(other,current),s=>{
+    if(!me||me.uid!==user||S.month!==current)return;
+    spouseTotal=s.exists()?s.data():null;
+    if(S.tab==="home")refresh();
+  },e=>toast(cloudError(e))));
+}
+async function saveCloudEntry(entry){
+  online();const user=who(),target=doc(txCollection(user),entry.id);
+  await runTransaction(db,async tr=>{
+    const old=await tr.get(target),oldData=old.exists()?old.data():null;
+    const newPeriod=periodOf(entry.date),oldPeriod=oldData?periodOf(oldData.date):null;
+    const periods=[...new Set([newPeriod,oldPeriod].filter(Boolean))];
+    const refs=periods.map(k=>summaryRef(user,k));
+    const snaps=await Promise.all(refs.map(r=>tr.get(r)));
+    const totals={};periods.forEach((k,i)=>{totals[k]=summaryNumbers(snaps[i].exists()?snaps[i].data():null)});
+    if(oldData){
+      if(oldData.ownerUid&&oldData.ownerUid!==user)throw Error("Ini bukan transaksi milik Anda.");
+      totals[oldPeriod]=changeTotals(totals[oldPeriod],oldData.currency,-oldData.amount,-1);
+    }
+    if(!entry.deleted)totals[newPeriod]=changeTotals(totals[newPeriod],entry.currency,entry.amount,1);
+    if(entry.deleted){
+      if(!oldData)throw Error("Transaksi tidak ditemukan.");
+      tr.delete(target);
+    }else{
+      tr.set(target,{date:entry.date,account:entry.account,currency:entry.currency,
+        amount:entry.amount,note:entry.note||"",ownerUid:user,
+        createdAt:oldData?.createdAt||serverTimestamp(),updatedAt:serverTimestamp()});
+    }
+    for(const k of periods)tr.set(summaryRef(user,k),{...totals[k],ownerUid:user,period:k,updatedAt:serverTimestamp()});
+  });
+}
+async function allCloudDays(){
+  const currentUser=who(),snapshot=await getDocs(txCollection(currentUser));
+  return groupEntries(snapshot.docs.map(d=>({id:d.id,...d.data()})));
+}
 var store={
-  put: async function(entry){
-    (local.days[entry.date]=local.days[entry.date]||{})[entry.id]=entry; saveLocal(); localMonth();
+  put:saveCloudEntry,
+  saveCfg:async function(cfg){
+    online();who();
+    const batch=writeBatch(db);let edited=0;
+    for(const a of cfg.accounts){
+      const existing=accById(a.id);
+      if(existing&&(a.name!==existing.name||a.no!==existing.no)){
+        batch.update(accountRef(a.id),{name:a.name,no:a.no});edited++;
+      }
+    }
+    if(edited)await batch.commit();
+    if(Number(cfg.rate)>0){S.cfg.rate=Number(cfg.rate);LS.set("bp.family.rate",S.cfg.rate)}
   },
-  saveCfg: async function(cfg){ if(!LS.set('bp.cfg',normCfg(cfg))) throw {code:'quota_exceeded'}; S.cfg=normCfg(cfg) },
-  setMonth: function(m){ S.month=m; localMonth(); refresh() },
-  allDays: async function(){ return clone(local.days) }
+  setMonth:function(month){S.month=month;watchMonth();refresh()},
+  allDays:allCloudDays
 };
 
 /* ---------- ui helpers ---------- */
