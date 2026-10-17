@@ -456,7 +456,9 @@ function viewAdd(){
 }
 function viewSettings(){
   var activeCount=S.cfg.accounts.filter(function(a){return a.active!==false}).length;
-  var h='<h2 style="margin-top:4px">Kelola rekening</h2><div class="card" style="padding:14px">';
+  var h='<h2 style="margin-top:4px">Kelola rekening</h2>'+
+    '<button class="btn primary" data-act="jumpAddAccount" style="margin-bottom:12px">+ Tambah Rekening Baru</button>'+
+    '<div class="card" style="padding:14px">';
   h+='<div class="hint" style="margin-bottom:14px">'+activeCount+' rekening aktif. Ubah nama atau nomor rekening di bawah ini.</div>';
   S.cfg.accounts.forEach(function(a){
     var inactive=a.active===false;
@@ -710,6 +712,7 @@ document.addEventListener('click',function(ev){
   else if(act==='del') deleteEntry(t);
   else if(act==='saveCfg') saveCfg();
    else if(act==='addAccount') addAccount();
+   else if(act==='jumpAddAccount'){ var field=$('newAccName'); if(field){field.scrollIntoView({behavior:'smooth',block:'center'});field.focus({preventScroll:true})} }
    else if(act==='removeAcc') removeAccount(t);
    else if(act==='reactivateAcc') reactivateAccount(t);
   else if(act==='csvMonth') csvMonth();
