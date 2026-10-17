@@ -453,7 +453,7 @@ var store={
         batch.update(accountRef(a.id),{name:a.name,no:a.no});edited++;
       }
     }
-    if(edited)await batch.commit();
+    if(edited){await batch.commit();await reloadAccounts()}
     if(Number(cfg.rate)>0){S.cfg.rate=Number(cfg.rate);LS.set("bp.family.rate",S.cfg.rate)}
   },
   setMonth:function(month){S.month=month;watchMonth();refresh()},
@@ -634,6 +634,7 @@ function viewSettings(){
 
 /* ---------- render ---------- */
 function render(){
+  if(!me)return;
   modeBadge();
   var v=$('view');
   if(S.tab==='home') v.innerHTML=viewHome();
@@ -851,7 +852,7 @@ document.addEventListener('keydown',function(ev){
 function setLoginStatus(s){$('loginStatus').textContent=s}
 function showLogin(){
   stopAll();ready=false;me=null;ownerUid=null;spouseUid=null;myTotal=null;spouseTotal=null;
-  S.days={};S.cfg.accounts=[];S.form=null;S.mode=null;S.tab='home';
+  S.days={};S.cfg.accounts=[];S.form=null;S.mode=null;S.tab='home';S.filterAcc='all';S.q='';
   $('familyApp').classList.add('hidden');$('familyTabs').classList.add('hidden');
   $('authGate').classList.remove('hidden');$('loginPassword').value='';
 }
