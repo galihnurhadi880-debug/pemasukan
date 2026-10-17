@@ -113,7 +113,7 @@ function periodBounds(k){const y=+k.slice(0,4),m=+k.slice(5,7);return {start:ymd
 function shiftPeriod(k,steps){return ymd(new Date(+k.slice(0,4),+k.slice(5,7)-1+steps,1)).slice(0,7)}
 const initialPeriod=periodOf(new Date());
 let period=initialPeriod,accountList=[],privateEntries=[],selfSummary=null,otherSummary=null;
-let auth,db,F,activeUser=null,owner=null,spouse=null,role=null,listen=[];
+let auth,db,F,activeUser=null,owner=null,spouse=null,role=null,periodListen=[],accountStop=null;
 let loginBusy=false,writeBusy=false,accountBusy=false;
 function message(msg,error=false){$("status").textContent=msg;$("status").className=error?"bad":"good"}
 function problem(e){
@@ -122,7 +122,8 @@ function problem(e){
  if(e&&e.code==="unavailable")return "Firestore tidak tersedia. Periksa koneksi internet.";
  return "Terjadi kesalahan: "+(e&&e.message||e&&e.code||"Tidak diketahui");
 }
-function stopListeners(){for(const stop of listen){try{stop()}catch(e){}}listen=[]}
+function stopPeriodListeners(){for(const stop of periodListen){try{stop()}catch(e){}}periodListen=[]}
+function stopListeners(){stopPeriodListeners();if(accountStop){try{accountStop()}catch(e){}accountStop=null}}
 function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 function accountSelect(){
  const active=accountList.filter(x=>x.active!==false);
@@ -173,10 +174,10 @@ function renderEntries(){
  }
 }
 function sub(ref,callback){
- listen.push(F.onSnapshot(ref,callback,err=>message(problem(err),true)));
+ periodListen.push(F.onSnapshot(ref,callback,err=>message(problem(err),true)));
 }
 function watchPeriod(){
- stopListeners();if(!activeUser||!owner||!spouse)return;
+ stopPeriodListeners();if(!activeUser||!owner||!spouse)return;
  $("periodLabel").textContent=(periodBounds(period).start)+" s.d. "+periodBounds(period).end;
  $("summaryInfo").textContent="Mengambil laporan...";
  const uid=activeUser.uid,other=uid===owner?spouse:owner;
@@ -193,9 +194,10 @@ function watchPeriod(){
 function watchAccounts(){
  if(!activeUser)return;
  const uid=activeUser.uid;
- listen.push(F.onSnapshot(F.collection(db,"families",FAMILY,"accounts"),
+ if(accountStop){accountStop();accountStop=null}
+ accountStop=F.onSnapshot(F.collection(db,"families",FAMILY,"accounts"),
    snap=>{if(!activeUser||activeUser.uid!==uid)return;accountList=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>a.name.localeCompare(b.name,"id"));accountsView();},
-   err=>message(problem(err),true)));
+   err=>message(problem(err),true));
 }
 async function switchAccount(acc,button){
  if(accountBusy||!activeUser)return;
