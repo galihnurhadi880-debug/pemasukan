@@ -662,37 +662,43 @@ function readForm(){
   if(a) f.amount=a.value.replace(/\D/g,''); if(d) f.date=d.value; if(n) f.note=n.value;
 }
 async function saveEntry(){
-  readForm(); var f=S.form, acc=accById(f.account);
-  if(!acc) return toast('Pilih rekening tujuan dulu.');
-  var amt=parseInt(f.amount,10); if(!(amt>0)) { toast('Isi jumlah pemasukan.'); var ai=$('amt'); if(ai) ai.focus(); return }
-  if(!/^\d{4}-\d{2}-\d{2}$/.test(f.date)) return toast('Isi tanggal masuk.');
-  if(S.busy) return; S.busy=true;
-  var editing=!!f.id;
-  var entry={id:f.id||uid(), date:f.date, account:acc.id, currency:acc.currency, amount:amt,
-    note:(f.note||'').trim(), createdAt:f.createdAt||Date.now(), updatedAt:Date.now(), deleted:false};
+  readForm();const f=S.form,acc=f&&accById(f.account);
+  if(!acc)return toast('Pilih rekening tujuan dulu.');
+  if(acc.active===false&&!f.id)return toast('Rekening tidak aktif. Pilih yang lain.');
+  const amount=Number(f.amount);
+  if(!Number.isSafeInteger(amount)||amount<=0||amount>1e12)return toast('Jumlah tidak valid.');
+  if(!validDay(f.date))return toast('Isi tanggal yang benar.');
+  if((f.note||'').length>250)return toast('Catatan maksimal 250 karakter.');
+  if(S.busy)return;S.busy=true;
+  const editing=!!f.id,entry={id:f.id||uid(),date:f.date,account:acc.id,
+    currency:acc.currency,amount,note:(f.note||'').trim()};
   try{
-    await store.put(entry);
-    if(editing&&f.origDate&&f.origDate!==f.date){ var old=clone(entry); old.date=f.origDate; old.deleted=true; await store.put(old) }
+    await saveCloudEntry(entry);
     LS.set('bp.family.lastAcc',acc.id);
     stamp(editing?'Diperbarui':'Tersimpan');
-    if(editing){ S.form=null; S.tab='list'; if(periodOf(entry.date)!==S.month) store.setMonth(periodOf(entry.date)); render() }
-    else {
-      S.form={id:null,origDate:null,date:f.date,account:acc.id,amount:'',note:''};
-      if(periodOf(entry.date)!==S.month) store.setMonth(periodOf(entry.date));
-      render(); var ai2=$('amt'); if(ai2) ai2.focus({preventScroll:true});
-    }
-    if(S.mode==='local') refresh();
-  }catch(e){ toast(errMsg(e)) }
-  S.busy=false;
+    if(editing){S.form=null;S.tab='list'}
+    else S.form={id:null,origDate:null,date:f.date,account:acc.id,amount:'',note:''};
+    if(periodOf(f.date)!==S.month)store.setMonth(periodOf(f.date));
+    render();
+    if(!editing&&$('amt'))$('amt').focus({preventScroll:true});
+  }catch(e){toast(cloudError(e))}
+  finally{S.busy=false}
 }
 var delArmed=null;
 async function deleteEntry(btn){
-  if(delArmed!==btn){ delArmed=btn; btn.classList.add('armed'); btn.textContent='Tekan lagi untuk hapus';
-    setTimeout(function(){ if(delArmed===btn){ delArmed=null; btn.classList.remove('armed'); btn.textContent='Hapus' } },3000); return }
-  delArmed=null; var f=S.form; if(!f||!f.id) return;
-  var src=(S.days[f.origDate]||{})[f.id]; var e=src?clone(src):{id:f.id,date:f.origDate};
-  e.deleted=true; e.updatedAt=Date.now(); e.date=f.origDate;
-  try{ await store.put(e); S.form=null; S.tab='list'; render(); toast('Pemasukan dihapus.') }catch(err){ toast(errMsg(err)) }
+  if(S.busy)return;
+  if(delArmed!==btn){
+    delArmed=btn;btn.classList.add('armed');btn.textContent='Tekan lagi untuk hapus';
+    setTimeout(function(){if(delArmed===btn){delArmed=null;if(btn.isConnected){btn.classList.remove('armed');btn.textContent='Hapus'}}},3000);return;
+  }
+  delArmed=null;
+  const f=S.form;if(!f||!f.id)return;
+  S.busy=true;
+  try{
+    await saveCloudEntry({id:f.id,date:f.origDate||f.date,deleted:true});
+    S.form=null;S.tab='list';render();toast('Transaksi pribadi dihapus. Laporan diperbarui.');
+  }catch(e){toast(cloudError(e))}
+  finally{S.busy=false}
 }
 function openEdit(id,date){
   var e=(S.days[date]||{})[id]; if(!e) return;
@@ -715,68 +721,54 @@ async function saveCfg(){
   var cfg=readSettingsCfg();
   try{await store.saveCfg(cfg);render();stamp('Pengaturan')}catch(e){toast(errMsg(e))}
 }
+async function reloadAccounts(){
+  const snap=await getDocs(collection(db,'families',FAMILY_ID,'accounts'));
+  S.cfg.accounts=snap.docs.map(fromAccount).sort((a,b)=>a.name.localeCompare(b.name,'id'));
+}
 async function addAccount(){
-  if(S.busy) return;
-  var n=$('newAccName'), no=$('newAccNo'), t=$('newAccType');
-  var name=n?n.value.trim():'';
-  if(!name){toast('Isi nama rekening.');if(n)n.focus();return}
-  if(name.length>100) return toast('Nama rekening terlalu panjang.');
-  var type=t&&/^(yucho|paypay|idr)$/.test(t.value)?t.value:'yucho';
-  var cfg=readSettingsCfg();
-  cfg.accounts.push({id:'acc_'+uid(),name:name,no:no?no.value.trim():'',type:type,
-    currency:type==='idr'?'IDR':'JPY',active:true});
-  S.busy=true;
-  try{await store.saveCfg(cfg);render();stamp('Rekening baru');toast('Rekening berhasil ditambahkan.')}
-  catch(e){toast(errMsg(e))}
-  S.busy=false;
-}
-function accountUsed(id){
-  for(var d of Object.keys(local.days)){
-    var items=local.days[d]||{};
-    for(var k of Object.keys(items)){
-      if(items[k]&&items[k].account===id) return true;
-    }
-  }
-  return false;
-}
-var removeAccArmed=null,removeAccTimer=null;
-async function removeAccount(btn){
-  if(S.busy) return;
-  var id=btn.dataset.accId, acct=accById(id);
-  if(!acct||acct.active===false) return;
-  var used=accountUsed(id);
-  if(removeAccArmed!==btn){
-    if(removeAccArmed){removeAccArmed.classList.remove('armed');removeAccArmed.textContent='Hapus / Nonaktifkan'}
-    removeAccArmed=btn;btn.classList.add('armed');
-    btn.textContent=used?'Tekan lagi untuk nonaktifkan':'Tekan lagi untuk hapus';
-    clearTimeout(removeAccTimer);
-    removeAccTimer=setTimeout(function(){
-      if(removeAccArmed===btn){removeAccArmed=null;btn.classList.remove('armed');btn.textContent='Hapus / Nonaktifkan'}
-    },3500);
-    return;
-  }
-  removeAccArmed=null;clearTimeout(removeAccTimer);
-  var cfg=readSettingsCfg();
-  if(used) cfg.accounts.forEach(function(a){if(a.id===id)a.active=false});
-  else cfg.accounts=cfg.accounts.filter(function(a){return a.id!==id});
+  if(S.busy)return;
+  const n=$('newAccName'),no=$('newAccNo'),t=$('newAccType');
+  const name=n?n.value.trim():'';
+  if(!name)return toast('Isi nama rekening.');
+  if(name.length>100||((no?.value||'').length>100))return toast('Nama atau nomor rekening terlalu panjang.');
+  const type=t&&/^(yucho|paypay|idr)$/.test(t.value)?t.value:'yucho';
   S.busy=true;
   try{
-    await store.saveCfg(cfg);
-    if(S.filterAcc===id) S.filterAcc='all';
-    if(S.form&&S.form.account===id&&!S.form.id) S.form.account='';
-    render();toast(used?'Rekening dinonaktifkan. Riwayat tetap tersimpan.':'Rekening tanpa transaksi dihapus.');
-  }catch(e){toast(errMsg(e))}
-  S.busy=false;
+    online();who();
+    await setDoc(accountRef('acc_'+uid()),{name,no:(no?.value||'').trim(),type,
+      currency:type==='idr'?'IDR':'JPY',active:true});
+    await reloadAccounts();render();toast('Rekening bersama ditambahkan untuk dua akun.');
+  }catch(e){toast(cloudError(e))}
+  finally{S.busy=false}
+}
+var removeAccArmed=null;
+async function removeAccount(btn){
+  if(S.busy)return;
+  const id=btn.dataset.accId,account=accById(id);
+  if(!account||account.active===false)return;
+  if(removeAccArmed!==btn){
+    removeAccArmed=btn;btn.classList.add('armed');btn.textContent='Tekan lagi untuk nonaktifkan';
+    setTimeout(function(){if(removeAccArmed===btn){removeAccArmed=null;if(btn.isConnected){btn.classList.remove('armed');btn.textContent='Hapus / Nonaktifkan'}}},3500);
+    return;
+  }
+  removeAccArmed=null;S.busy=true;
+  try{
+    online();who();
+    await updateDoc(accountRef(id),{active:false});
+    await reloadAccounts();if(S.filterAcc===id)S.filterAcc='all';render();
+    toast('Rekening dinonaktifkan bersama. Riwayat tetap aman.');
+  }catch(e){toast(cloudError(e))}
+  finally{S.busy=false}
 }
 async function reactivateAccount(btn){
-  if(S.busy) return;
-  var id=btn.dataset.accId, cfg=readSettingsCfg();
-  var found=false;
-  cfg.accounts.forEach(function(a){if(a.id===id){a.active=true;found=true}});
-  if(!found) return;
+  if(S.busy)return;
+  const id=btn.dataset.accId;if(!accById(id))return;
   S.busy=true;
-  try{await store.saveCfg(cfg);render();toast('Rekening diaktifkan kembali.')}catch(e){toast(errMsg(e))}
-  S.busy=false;
+  try{
+    online();who();await updateDoc(accountRef(id),{active:true});
+    await reloadAccounts();render();toast('Rekening diaktifkan untuk kedua akun.');
+  }catch(e){toast(cloudError(e))}
+  finally{S.busy=false}
 }
 
 /* ---------- export / backup ---------- */
