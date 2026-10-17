@@ -502,7 +502,7 @@ function viewHome(){
      fmt(own.jpy+other.jpy,'JPY')+'<small>'+fmt(own.idr+other.idr,'IDR')+'</small></b></div>'+
      '<div class="cloud-note">'+(own.count+other.count)+' transaksi keluarga. Detail transaksi pasangan tetap pribadi.</div></div>';
   h+='<section class="book" aria-label="Ringkasan periode">'+
-     '<div class="book-head"><div class="lbl">Pemasukan dalam Yen</div><div class="big">'+fmt(jpy,'JPY')+'</div></div>'+
+     '<div class="book-head"><div class="lbl">Pemasukan pribadi dalam Yen</div><div class="big">'+fmt(jpy,'JPY')+'</div></div>'+
      '<div class="lines">'+
        '<div class="line"><span>Pemasukan dalam Rupiah</span><b>'+fmt(idr,'IDR')+'</b></div>'+
        '<div class="line total"><span>Total gabungan</span><b>≈ '+fmt(jpy+idrJ,'JPY')+'<small>kurs 1 ¥ = Rp '+fmtNum(rate(),'IDR')+'</small></b></div>'+
@@ -794,29 +794,15 @@ function flatten(days){
 async function csvMonth(){ var es=monthEntries().slice().reverse(); if(!es.length) return toast('Belum ada data di periode ini.'); var r=periodRange(S.month); offerFile('pemasukan-'+r.start+'-sd-'+r.end+'.csv',toCSV(es)) }
 async function csvAll(){ try{ var es=flatten(await store.allDays()); if(!es.length) return toast('Belum ada data.'); offerFile('pemasukan-semua-'+today()+'.csv',toCSV(es)) }catch(e){ toast(errMsg(e)) } }
 async function backup(){
-  var days=await store.allDays();
-  var ok=await offerFile('cadangan-pemasukan-'+today()+'.json',JSON.stringify({app:'buku-pemasukan',version:2,cfg:S.cfg,days:days}));
-  if(ok){ LS.set('bp.lastBackup',Date.now()); if(S.tab==='home') render() }
-}
-async function restore(file){
   try{
-    var data=JSON.parse(await file.text()); if(!data||!data.days) throw new Error('bad');
-    var n=0;
-    for(var d of Object.keys(data.days)){
-      if(!/^\d{4}-\d{2}-\d{2}$/.test(d)) continue;
-      var m=data.days[d]||{};
-      for(var id of Object.keys(m)){ var e=m[id]; if(!e||!e.id||!(e.amount>0)) continue; await store.put(e); if(!e.deleted) n++ }
-    }
-    if(data.cfg){
-      var restoredCfg=normCfg(data.cfg), mergedCfg=clone(S.cfg), ids={};
-      restoredCfg.accounts.forEach(function(a){ids[a.id]=true});
-      mergedCfg.accounts=restoredCfg.accounts.concat(S.cfg.accounts.filter(function(a){return !ids[a.id]}));
-      mergedCfg.rate=restoredCfg.rate;
-      await store.saveCfg(mergedCfg);
-    }
-    store.setMonth(S.month); toast(n+' transaksi dipulihkan.'); render();
-  }catch(e){ toast(e&&e.code?errMsg(e):'File cadangan tidak dikenali.') }
+    const days=await store.allDays();
+    const label=me&&me.uid===ownerUid?'anda':'istri';
+    const ok=await offerFile('cadangan-cloud-'+label+'-'+today()+'.json',
+      JSON.stringify({app:'buku-pemasukan-cloud',version:1,accountRole:label,cfg:S.cfg,days:days}));
+    if(ok){LS.set('bp.family.backup',Date.now());toast('Cadangan transaksi pribadi sudah disiapkan.')}
+  }catch(e){toast(cloudError(e))}
 }
+function restore(){toast('Untuk migrasi data lama, gunakan halaman migrasi yang terpisah.');}
 
 /* ---------- events ---------- */
 document.addEventListener('click',function(ev){
@@ -842,7 +828,8 @@ document.addEventListener('click',function(ev){
   else if(act==='csvMonth') csvMonth();
   else if(act==='csvAll') csvAll();
   else if(act==='backup') backup();
-  else if(act==='restore') $('restoreFile').click();
+  else if(act==='restore') restore();
+  else if(act==='logout') signOut(fbAuth).catch(e=>toast(cloudError(e)));
   if(act==='prev'||act==='next'){ if(S.tab==='home'||S.tab==='list'||S.tab==='settings') render() }
 });
 document.addEventListener('input',function(ev){
@@ -854,18 +841,55 @@ document.addEventListener('input',function(ev){
 document.addEventListener('change',function(ev){
   var t=ev.target;
   if(t.id==='fAcc'){ S.filterAcc=t.value; $('listBody').innerHTML=listBody() }
-  else if(t.id==='restoreFile'&&t.files&&t.files[0]){ restore(t.files[0]); t.value='' }
+  else if(t.id==='restoreFile'&&t.files&&t.files[0]){ toast('Pulihkan data hanya melalui prosedur migrasi khusus.');t.value='' }
 });
 document.addEventListener('keydown',function(ev){
   if(ev.key==='Enter'&&S.tab==='add'&&ev.target.tagName==='INPUT'){ ev.preventDefault(); saveEntry() }
 });
 
-/* ---------- start ---------- */
-(function init(){
-  S.mode='local'; loadLocal(); localMonth(); render();
-  try{ if(navigator.storage&&navigator.storage.persist) navigator.storage.persist() }catch(e){}
-  if('serviceWorker' in navigator) window.addEventListener('load',function(){ navigator.serviceWorker.register('./sw.js').catch(function(){}) });
-})();
+/* ---------- authentication ---------- */
+function setLoginStatus(s){$('loginStatus').textContent=s}
+function showLogin(){
+  stopAll();ready=false;me=null;ownerUid=null;spouseUid=null;myTotal=null;spouseTotal=null;
+  S.days={};S.cfg.accounts=[];S.form=null;S.mode=null;S.tab='home';
+  $('familyApp').classList.add('hidden');$('familyTabs').classList.add('hidden');
+  $('authGate').classList.remove('hidden');$('loginPassword').value='';
+}
+async function setupUser(user){
+  const family=await getDoc(doc(db,'families',FAMILY_ID));
+  if(fbAuth.currentUser?.uid!==user.uid)return;
+  if(!family.exists())throw Error('Data keluarga tidak ditemukan.');
+  const data=family.data();
+  if(user.uid!==data.ownerUid&&user.uid!==data.spouseUid)
+    throw Error('Akun ini tidak terdaftar sebagai anggota keluarga.');
+  const snapshot=await getDocs(collection(db,'families',FAMILY_ID,'accounts'));
+  if(fbAuth.currentUser?.uid!==user.uid)return;
+  if(!snapshot.size)throw Error('Rekening keluarga belum ada di Firebase.');
+  ownerUid=data.ownerUid;spouseUid=data.spouseUid;me=user;
+  S.cfg.accounts=snapshot.docs.map(fromAccount).sort((a,b)=>a.name.localeCompare(b.name,'id'));
+  S.cfg.rate=Number(LS.get('bp.family.rate'))>0?Number(LS.get('bp.family.rate')):108;
+  S.mode='cloud';ready=true;S.month=periodOf(today());S.form=null;S.tab='home';
+  $('authGate').classList.add('hidden');$('familyApp').classList.remove('hidden');
+  $('familyTabs').classList.remove('hidden');
+  render();watchAccounts();watchMonth();
+}
+$('loginForm').addEventListener('submit',async function(ev){
+  ev.preventDefault();const btn=$('loginButton');btn.disabled=true;
+  setLoginStatus('Memeriksa akun...');
+  try{await signInWithEmailAndPassword(fbAuth,$('loginEmail').value.trim(),$('loginPassword').value)}
+  catch(e){setLoginStatus(cloudError(e))}
+  finally{btn.disabled=false;$('loginPassword').value=''}
+});
+onAuthStateChanged(fbAuth,async function(user){
+  showLogin();
+  if(!user){setLoginStatus('Firebase siap. Silakan masuk.');$('loginButton').disabled=false;return}
+  setLoginStatus('Mengambil rekening dan transaksi keluarga...');
+  try{await setupUser(user)}
+  catch(e){
+    setLoginStatus(cloudError(e));
+    try{await signOut(fbAuth)}catch(ignore){}
+  }
+},function(e){setLoginStatus(cloudError(e))});
 })();
 </script>
 </body>
