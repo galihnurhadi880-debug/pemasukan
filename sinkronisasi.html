@@ -38,7 +38,7 @@ small,.hint{color:var(--muted);font-size:.83rem}.hidden{display:none!important}
 <header><span class="seal" aria-hidden="true">入</span><strong>Buku Pemasukan Keluarga</strong><span class="pill">Uji sinkronisasi</span></header>
 <h1>Rekening bersama, catatan pribadi</h1>
 <p>Versi pengujian yang menggunakan Firebase. Catatan pada aplikasi Buku Pemasukan lama belum dipindahkan atau diubah.</p>
-<div class="note">Mulai dengan <strong>satu transaksi uji kecil</strong> saja. Hapus atau penyuntingan transaksi belum tersedia di halaman ini. Jangan menyalin data lama sebelum fitur migrasi siap.</div>
+<div class="note">Mulai dengan <strong>satu transaksi uji kecil</strong> saja. Transaksi uji bisa dihapus lagi dari daftar pribadi. Penyuntingan dan pemindahan transaksi lama belum tersedia.</div>
 <section id="loginPanel" class="card">
 <h2>Masuk ke akun</h2>
 <form id="loginForm">
@@ -170,7 +170,12 @@ function renderEntries(){
    const title=document.createElement("strong");title.textContent=(account?account.name:entry.account)+" · "+entry.date;
    const note=document.createElement("small");note.textContent=entry.note||"Tanpa catatan";
    const amount=document.createElement("strong");amount.textContent=fmt(entry.amount,entry.currency);
-   text.append(title,note);line.append(text,amount);target.append(line);
+   const right=document.createElement("div");right.style.textAlign="right";
+   const del=document.createElement("button");del.type="button";del.textContent="Hapus";
+   del.style.marginTop="6px";del.style.minHeight="36px";del.style.fontSize=".85rem";
+   del.addEventListener("click",()=>removeEntry(entry,del));
+   right.append(amount,del);
+   text.append(title,note);line.append(text,right);target.append(line);
  }
 }
 function sub(ref,callback){
@@ -203,6 +208,7 @@ async function switchAccount(acc,button){
  if(accountBusy||!activeUser)return;
  accountBusy=true;button.disabled=true;
  try{
+   if(acc.active!==false&&!confirm("Nonaktifkan rekening bersama ini untuk kedua akun? Riwayat transaksi tetap tersimpan."))return;
    await F.updateDoc(F.doc(db,"families",FAMILY,"accounts",acc.id),{active:acc.active===false});
    message("Status rekening bersama diperbarui.");
  }catch(e){message(problem(e),true)}
@@ -221,6 +227,32 @@ async function saveNewAccount(ev){
    message("Rekening bersama berhasil ditambahkan dan akan muncul pada kedua akun.");
  }catch(e){message(problem(e),true)}
  finally{accountBusy=false;$("addAccount").disabled=false}
+}
+async function removeEntry(entry,button){
+ if(writeBusy||!activeUser)return;
+ if(!confirm("Hapus transaksi pribadi ini dari Firebase? Total laporan Anda akan dikurangi sesuai jumlah transaksi."))return;
+ const uid=activeUser.uid,k=periodOf(new Date(entry.date+"T12:00:00"));
+ const docRef=F.doc(db,"families",FAMILY,"members",uid,"transactions",entry.id);
+ const summaryRef=F.doc(db,"families",FAMILY,"members",uid,"summaries",k);
+ writeBusy=true;button.disabled=true;
+ try{
+   await F.runTransaction(db,async tr=>{
+     const existing=await tr.get(docRef);
+     const sum=await tr.get(summaryRef);
+     if(!existing.exists())throw Error("Transaksi sudah terhapus.");
+     if(!sum.exists())throw Error("Ringkasan tidak tersedia. Penghapusan dibatalkan.");
+     const data=existing.data(),prior=summaryFrom(sum.data());
+     if(!["JPY","IDR"].includes(data.currency)||!Number.isSafeInteger(data.amount)||data.amount<=0)
+       throw Error("Data transaksi tidak valid.");
+     const afterJPY=prior.jpy-(data.currency==="JPY"?data.amount:0);
+     const afterIDR=prior.idr-(data.currency==="IDR"?data.amount:0);
+     if(afterJPY<0||afterIDR<0||prior.count<=0)throw Error("Ringkasan berbeda dengan transaksi. Penghapusan dibatalkan.");
+     tr.delete(docRef);
+     tr.set(summaryRef,{jpy:afterJPY,idr:afterIDR,count:prior.count-1,ownerUid:uid,period:k,updatedAt:F.serverTimestamp()});
+   });
+   message("Transaksi dihapus dari akun pribadi dan laporan disesuaikan.");
+ }catch(e){message(problem(e),true)}
+ finally{writeBusy=false;button.disabled=false}
 }
 async function saveEntry(ev){
  ev.preventDefault();if(writeBusy||!activeUser)return;
