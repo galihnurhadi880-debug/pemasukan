@@ -157,6 +157,12 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--accent);outline-
 .set-acc .ins input{padding:8px 10px;min-height:40px}
 .set-acc .ins input[data-no]{font-size:15px;color:var(--muted)}
 .set-acc .cur{font-size:.8rem;color:var(--muted);width:34px;text-align:right}
+.set-acc .manage{grid-column:2/4;display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-bottom:5px}
+.set-acc .manage small{font-size:.8rem;color:var(--muted)}
+.set-acc.is-inactive{opacity:.75}
+.btn.small{min-height:36px;padding:6px 10px;font-size:.8rem}
+.new-account{padding:14px}
+.new-account .field{margin-bottom:12px}
 .note{font-size:.85rem;color:var(--muted);background:var(--soft);border:1px solid var(--rule);border-radius:10px;padding:12px}
 
 /* Bottom tabs */
@@ -238,7 +244,7 @@ var YUCHO = [
 var DEFAULT_ACCOUNTS = YUCHO.map(function(y,i){return {id:'yucho'+(i+1), name:y[0], no:y[1], type:'yucho', currency:'JPY'}});
 DEFAULT_ACCOUNTS.push({id:'paypay', name:'PayPay', no:'', type:'paypay', currency:'JPY'});
 DEFAULT_ACCOUNTS.push({id:'idr', name:'Rekening Indonesia', no:'', type:'idr', currency:'IDR'});
-var CFG_V = 2;
+var CFG_V = 3;
 var DEFAULT_CFG = {v:CFG_V, accounts:DEFAULT_ACCOUNTS, rate:108};
 /* Periode laporan: tanggal 23 sampai tanggal 22 bulan berikutnya. Periode diberi kode bulan awalnya (YYYY-MM). */
 var PERIOD_START = 23;
@@ -277,11 +283,23 @@ function rate(){var r=Number(S.cfg.rate);return r>0?r:108}
 function toJPY(e){return e.currency==='IDR' ? e.amount/rate() : e.amount}
 function normCfg(c){
   var out=clone(DEFAULT_CFG); if(!c) return out;
-  if(Array.isArray(c.accounts)&&c.v>=CFG_V) out.accounts=DEFAULT_ACCOUNTS.map(function(d){
-    var f=c.accounts.filter(function(a){return a&&a.id===d.id})[0];
-    return {id:d.id,type:d.type,currency:d.currency,name:(f&&f.name)||d.name,no:(f&&typeof f.no==='string')?f.no:d.no};
-  });
+  if(Array.isArray(c.accounts)&&Number(c.v)>=2){
+    var seen={}, accounts=[];
+    c.accounts.forEach(function(a){
+      if(!a||typeof a.id!=='string'||!/^[a-zA-Z0-9_-]+$/.test(a.id)||seen[a.id]) return;
+      seen[a.id]=true;
+      var d=DEFAULT_ACCOUNTS.filter(function(x){return x.id===a.id})[0];
+      var cur=d?d.currency:(a.currency==='IDR'?'IDR':'JPY');
+      var type=d?d.type:(cur==='IDR'?'idr':(a.type==='yucho'?'yucho':'paypay'));
+      accounts.push({id:a.id,type:type,currency:cur,
+        name:(typeof a.name==='string'&&a.name.trim())?a.name.trim():(d?d.name:'Rekening'),
+        no:(typeof a.no==='string')?a.no:(d?d.no:''),
+        active:a.active!==false});
+    });
+    out.accounts=accounts;
+  }
   if(Number(c.rate)>0) out.rate=Number(c.rate);
+  out.v=CFG_V;
   return out;
 }
 function monthEntries(){
@@ -309,7 +327,7 @@ var store={
   put: async function(entry){
     (local.days[entry.date]=local.days[entry.date]||{})[entry.id]=entry; saveLocal(); localMonth();
   },
-  saveCfg: async function(cfg){ LS.set('bp.cfg',cfg); S.cfg=normCfg(cfg) },
+  saveCfg: async function(cfg){ if(!LS.set('bp.cfg',normCfg(cfg))) throw {code:'quota_exceeded'}; S.cfg=normCfg(cfg) },
   setMonth: function(m){ S.month=m; localMonth(); refresh() },
   allDays: async function(){ return clone(local.days) }
 };
@@ -414,14 +432,16 @@ function listBody(){
 }
 function newForm(){
   var last=LS.get('bp.lastAcc');
-  return {id:null, origDate:null, date:today(), account:(last&&accById(last))?last:'', amount:'', note:''};
+  return {id:null, origDate:null, date:today(), account:(last&&accById(last)&&accById(last).active!==false)?last:'', amount:'', note:''};
 }
 function viewAdd(){
   var f=S.form||(S.form=newForm());
   var acc=accById(f.account), cur=acc?acc.currency:'JPY';
   function btn(a){return '<button class="acc-btn t-'+a.type+'" data-acc="'+a.id+'" aria-pressed="'+(f.account===a.id)+'"><span class="dot"></span><span class="txt"><span>'+esc(a.name)+'</span>'+(a.no?'<small>'+esc(a.no)+'</small>':'')+'</span></button>'}
-  var y=S.cfg.accounts.filter(function(a){return a.type==='yucho'}), o=S.cfg.accounts.filter(function(a){return a.type!=='yucho'});
+  var available=S.cfg.accounts.filter(function(a){return a.active!==false||(!!f.id&&a.id===f.account)});
+   var y=available.filter(function(a){return a.type==='yucho'}), o=available.filter(function(a){return a.type!=='yucho'});
   var h='<h2 style="margin-top:4px">'+(f.id?'Ubah pemasukan':'Catat pemasukan')+'</h2>';
+   if(!available.length) h+='<div class="note">Belum ada rekening aktif. Tambahkan rekening lewat menu Pengaturan terlebih dahulu.</div>';
   h+='<div class="field"><div class="lab">Masuk ke rekening</div><div><div class="grp">Yucho</div><div class="accs">'+y.map(btn).join('')+
      '</div><div class="grp">Lainnya</div><div class="accs">'+o.map(btn).join('')+'</div></div></div>';
   h+='<div class="field"><label for="amt">Jumlah</label><div class="amount"><span class="cur" id="curSym">'+(cur==='IDR'?'Rp':'¥')+'</span>'+
@@ -435,15 +455,34 @@ function viewAdd(){
   return h;
 }
 function viewSettings(){
-  var h='<h2 style="margin-top:4px">Nama rekening</h2><div class="card" style="padding:14px">';
+  var activeCount=S.cfg.accounts.filter(function(a){return a.active!==false}).length;
+  var h='<h2 style="margin-top:4px">Kelola rekening</h2><div class="card" style="padding:14px">';
+  h+='<div class="hint" style="margin-bottom:14px">'+activeCount+' rekening aktif. Ubah nama atau nomor rekening di bawah ini.</div>';
   S.cfg.accounts.forEach(function(a){
-    h+='<div class="set-acc t-'+a.type+'"><span class="dot"></span><div class="ins"><input type="text" data-name="'+a.id+'" value="'+esc(a.name)+'" aria-label="Nama '+esc(a.name)+'">'+
-       '<input type="text" inputmode="numeric" data-no="'+a.id+'" value="'+esc(a.no)+'" placeholder="No. rekening" aria-label="No. rekening '+esc(a.name)+'"></div><span class="cur">'+(a.currency==='IDR'?'IDR':'JPY')+'</span></div>';
+    var inactive=a.active===false;
+    h+='<div class="set-acc t-'+a.type+(inactive?' is-inactive':'')+'"><span class="dot"></span><div class="ins">'+
+       '<input type="text" data-name="'+esc(a.id)+'" value="'+esc(a.name)+'" aria-label="Nama '+esc(a.name)+'">'+
+       '<input type="text" inputmode="numeric" data-no="'+esc(a.id)+'" value="'+esc(a.no)+'" placeholder="No. rekening" aria-label="No. rekening '+esc(a.name)+'"></div>'+
+       '<span class="cur">'+(a.currency==='IDR'?'IDR':'JPY')+'</span>'+
+       '<div class="manage">'+(inactive?'<small>Nonaktif</small>':'')+
+       '<button type="button" class="btn small'+(inactive?'':' danger')+'" data-act="'+(inactive?'reactivateAcc':'removeAcc')+'" data-acc-id="'+esc(a.id)+'">'+
+       (inactive?'Aktifkan kembali':'Hapus / Nonaktifkan')+'</button></div></div>';
   });
-  h+='<div class="hint" style="margin-bottom:12px">Baris atas nama pemilik, baris bawah nomor rekening. Mata uang tiap rekening tetap.</div>';
+  if(!S.cfg.accounts.length) h+='<div class="hint" style="margin-bottom:12px">Belum ada rekening. Silakan tambah rekening baru.</div>';
+  h+='<div class="hint" style="margin:8px 0 14px">Rekening dengan riwayat transaksi akan dinonaktifkan agar catatan lama tetap aman. Rekening tanpa riwayat bisa dihapus.</div>';
   h+='<div class="field"><label for="rate">Kurs: 1 Yen = berapa Rupiah</label><input id="rate" type="number" inputmode="decimal" min="1" step="0.01" value="'+esc(S.cfg.rate)+'">'+
      '<div class="hint">Dipakai untuk menghitung total gabungan saja. Jumlah asli tidak berubah.</div></div>';
   h+='<button class="btn primary" data-act="saveCfg">Simpan pengaturan</button></div>';
+
+  h+='<h2>Tambah rekening</h2><div class="card new-account">'+
+     '<div class="field"><label for="newAccName">Nama rekening</label><input id="newAccName" type="text" autocomplete="off" placeholder="Contoh: Rekening baru"></div>'+
+     '<div class="field"><label for="newAccNo">Nomor rekening (opsional)</label><input id="newAccNo" type="text" inputmode="numeric" autocomplete="off" placeholder="Masukkan nomor rekening"></div>'+
+     '<div class="field"><label for="newAccType">Jenis rekening dan mata uang</label><select id="newAccType">'+
+     '<option value="yucho">Yucho / Bank Jepang (JPY)</option>'+
+     '<option value="paypay">Rekening lain di Jepang (JPY)</option>'+
+     '<option value="idr">Rekening Indonesia (IDR)</option>'+
+     '</select></div>'+
+     '<button class="btn primary" data-act="addAccount">+ Tambah rekening</button></div>';
 
   h+='<h2>Ekspor ke Excel</h2><div class="stack">'+
      '<button class="btn" data-act="csvMonth">Unduh CSV '+esc(monthLabel(S.month))+'</button>'+
@@ -526,17 +565,84 @@ function openEdit(id,date){
   S.form={id:e.id,origDate:e.date,date:e.date,account:e.account,amount:String(e.amount),note:e.note||'',createdAt:e.createdAt};
   S.tab='add'; render(); window.scrollTo(0,0);
 }
-async function saveCfg(){
+function readSettingsCfg(){
   var cfg=clone(S.cfg);
   document.querySelectorAll('[data-name]').forEach(function(inp){
-    cfg.accounts.forEach(function(a){ if(a.id===inp.dataset.name) a.name=inp.value.trim()||a.name })
+    cfg.accounts.forEach(function(a){if(a.id===inp.dataset.name) a.name=inp.value.trim()||a.name});
   });
   document.querySelectorAll('[data-no]').forEach(function(inp){
-    cfg.accounts.forEach(function(a){ if(a.id===inp.dataset.no) a.no=inp.value.trim() })
+    cfg.accounts.forEach(function(a){if(a.id===inp.dataset.no) a.no=inp.value.trim()});
   });
   cfg.v=CFG_V;
   var r=parseFloat(($('rate')||{}).value); if(r>0) cfg.rate=r;
-  try{ await store.saveCfg(cfg); S.cfg=normCfg(cfg); render(); stamp('Pengaturan') }catch(e){ toast(errMsg(e)) }
+  return cfg;
+}
+async function saveCfg(){
+  var cfg=readSettingsCfg();
+  try{await store.saveCfg(cfg);render();stamp('Pengaturan')}catch(e){toast(errMsg(e))}
+}
+async function addAccount(){
+  if(S.busy) return;
+  var n=$('newAccName'), no=$('newAccNo'), t=$('newAccType');
+  var name=n?n.value.trim():'';
+  if(!name){toast('Isi nama rekening.');if(n)n.focus();return}
+  if(name.length>100) return toast('Nama rekening terlalu panjang.');
+  var type=t&&/^(yucho|paypay|idr)$/.test(t.value)?t.value:'yucho';
+  var cfg=readSettingsCfg();
+  cfg.accounts.push({id:'acc_'+uid(),name:name,no:no?no.value.trim():'',type:type,
+    currency:type==='idr'?'IDR':'JPY',active:true});
+  S.busy=true;
+  try{await store.saveCfg(cfg);render();stamp('Rekening baru');toast('Rekening berhasil ditambahkan.')}
+  catch(e){toast(errMsg(e))}
+  S.busy=false;
+}
+function accountUsed(id){
+  for(var d of Object.keys(local.days)){
+    var items=local.days[d]||{};
+    for(var k of Object.keys(items)){
+      if(items[k]&&items[k].account===id) return true;
+    }
+  }
+  return false;
+}
+var removeAccArmed=null,removeAccTimer=null;
+async function removeAccount(btn){
+  if(S.busy) return;
+  var id=btn.dataset.accId, acct=accById(id);
+  if(!acct||acct.active===false) return;
+  var used=accountUsed(id);
+  if(removeAccArmed!==btn){
+    if(removeAccArmed){removeAccArmed.classList.remove('armed');removeAccArmed.textContent='Hapus / Nonaktifkan'}
+    removeAccArmed=btn;btn.classList.add('armed');
+    btn.textContent=used?'Tekan lagi untuk nonaktifkan':'Tekan lagi untuk hapus';
+    clearTimeout(removeAccTimer);
+    removeAccTimer=setTimeout(function(){
+      if(removeAccArmed===btn){removeAccArmed=null;btn.classList.remove('armed');btn.textContent='Hapus / Nonaktifkan'}
+    },3500);
+    return;
+  }
+  removeAccArmed=null;clearTimeout(removeAccTimer);
+  var cfg=readSettingsCfg();
+  if(used) cfg.accounts.forEach(function(a){if(a.id===id)a.active=false});
+  else cfg.accounts=cfg.accounts.filter(function(a){return a.id!==id});
+  S.busy=true;
+  try{
+    await store.saveCfg(cfg);
+    if(S.filterAcc===id) S.filterAcc='all';
+    if(S.form&&S.form.account===id&&!S.form.id) S.form.account='';
+    render();toast(used?'Rekening dinonaktifkan. Riwayat tetap tersimpan.':'Rekening tanpa transaksi dihapus.');
+  }catch(e){toast(errMsg(e))}
+  S.busy=false;
+}
+async function reactivateAccount(btn){
+  if(S.busy) return;
+  var id=btn.dataset.accId, cfg=readSettingsCfg();
+  var found=false;
+  cfg.accounts.forEach(function(a){if(a.id===id){a.active=true;found=true}});
+  if(!found) return;
+  S.busy=true;
+  try{await store.saveCfg(cfg);render();toast('Rekening diaktifkan kembali.')}catch(e){toast(errMsg(e))}
+  S.busy=false;
 }
 
 /* ---------- export / backup ---------- */
@@ -575,7 +681,13 @@ async function restore(file){
       var m=data.days[d]||{};
       for(var id of Object.keys(m)){ var e=m[id]; if(!e||!e.id||!(e.amount>0)) continue; await store.put(e); if(!e.deleted) n++ }
     }
-    if(data.cfg) await store.saveCfg(normCfg(data.cfg));
+    if(data.cfg){
+      var restoredCfg=normCfg(data.cfg), mergedCfg=clone(S.cfg), ids={};
+      restoredCfg.accounts.forEach(function(a){ids[a.id]=true});
+      mergedCfg.accounts=restoredCfg.accounts.concat(S.cfg.accounts.filter(function(a){return !ids[a.id]}));
+      mergedCfg.rate=restoredCfg.rate;
+      await store.saveCfg(mergedCfg);
+    }
     store.setMonth(S.month); toast(n+' transaksi dipulihkan.'); render();
   }catch(e){ toast(e&&e.code?errMsg(e):'File cadangan tidak dikenali.') }
 }
@@ -597,6 +709,9 @@ document.addEventListener('click',function(ev){
   else if(act==='cancel'){ S.form=null; go('list') }
   else if(act==='del') deleteEntry(t);
   else if(act==='saveCfg') saveCfg();
+   else if(act==='addAccount') addAccount();
+   else if(act==='removeAcc') removeAccount(t);
+   else if(act==='reactivateAcc') reactivateAccount(t);
   else if(act==='csvMonth') csvMonth();
   else if(act==='csvAll') csvAll();
   else if(act==='backup') backup();
