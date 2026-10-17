@@ -304,7 +304,7 @@ var YUCHO = [
 var DEFAULT_ACCOUNTS = YUCHO.map(function(y,i){return {id:'yucho'+(i+1), name:y[0], no:y[1], type:'yucho', currency:'JPY'}});
 DEFAULT_ACCOUNTS.push({id:'paypay', name:'PayPay', no:'', type:'paypay', currency:'JPY'});
 DEFAULT_ACCOUNTS.push({id:'idr', name:'Rekening Indonesia', no:'', type:'idr', currency:'IDR'});
-var CFG_V = 3;
+var CFG_V = 4;
 var DEFAULT_CFG = {v:CFG_V, accounts:DEFAULT_ACCOUNTS, rate:108};
 /* Periode laporan: tanggal 23 sampai tanggal 22 bulan berikutnya. Periode diberi kode bulan awalnya (YYYY-MM). */
 var PERIOD_START = 23;
@@ -362,13 +362,14 @@ function normCfg(c){
   out.v=CFG_V;
   return out;
 }
+function createdAtMs(e){var x=e&&e.createdAt;return typeof x==='number'?x:(x&&typeof x.toMillis==='function'?x.toMillis():0)}
 function monthEntries(){
   var out=[];
   Object.keys(S.days).forEach(function(d){
     var m=S.days[d]||{};
     Object.keys(m).forEach(function(id){var e=m[id]; if(e&&!e.deleted&&e.date===d) out.push(e)});
   });
-  out.sort(function(a,b){return a.date<b.date?1:a.date>b.date?-1:(b.createdAt||0)-(a.createdAt||0)});
+  out.sort(function(a,b){return a.date<b.date?1:a.date>b.date?-1:createdAtMs(b)-createdAtMs(a)});
   return out;
 }
 
@@ -471,8 +472,8 @@ function errMsg(e){
   return 'Gagal menyimpan. Periksa koneksi internet lalu coba lagi.';
 }
 function modeBadge(){
-  var m=$('mode'); m.className='mode';
-  m.textContent=new Date().toLocaleDateString('id-ID',{day:'numeric',month:'short'});
+ var m=$('mode');m.className='mode';
+ m.textContent=me?(me.uid===ownerUid?'Anda':'Istri')+' · Cloud':'';
 }
 function monthBar(){
   return '<div class="month"><button data-act="prev" aria-label="Periode sebelumnya">‹</button><strong>'+esc(monthLabel(S.month))+
@@ -491,6 +492,15 @@ function viewHome(){
   es.forEach(function(e){ if(e.date===tDay){ if(e.currency==='IDR') todayI+=e.amount; else todayJ+=e.amount } });
 
   var h=monthBar();
+  const own=summaryNumbers(myTotal),other=summaryNumbers(spouseTotal);
+  const ownLabel=me&&me.uid===ownerUid?"Anda":"Istri";
+  const otherLabel=me&&me.uid===ownerUid?"Istri":"Anda";
+  h+='<h2>Laporan keluarga bersama</h2><div class="card cloud-summary"><div class="totals">'+
+     '<div><small>'+ownLabel+' (akun ini)</small><strong>'+fmt(own.jpy,'JPY')+'</strong><span>'+fmt(own.idr,'IDR')+'</span></div>'+
+     '<div><small>'+otherLabel+'</small><strong>'+fmt(other.jpy,'JPY')+'</strong><span>'+fmt(other.idr,'IDR')+'</span></div>'+
+     '</div><div class="line total" style="margin-top:12px;padding:10px 0"><span>Total keluarga</span><b>'+
+     fmt(own.jpy+other.jpy,'JPY')+'<small>'+fmt(own.idr+other.idr,'IDR')+'</small></b></div>'+
+     '<div class="cloud-note">'+(own.count+other.count)+' transaksi keluarga. Detail transaksi pasangan tetap pribadi.</div></div>';
   h+='<section class="book" aria-label="Ringkasan periode">'+
      '<div class="book-head"><div class="lbl">Pemasukan dalam Yen</div><div class="big">'+fmt(jpy,'JPY')+'</div></div>'+
      '<div class="lines">'+
@@ -500,12 +510,8 @@ function viewHome(){
        '<div class="line"><span>Jumlah transaksi</span><b>'+es.length+'</b></div>'+
      '</div></section>';
 
-  var lb=LS.get('bp.lastBackup'), hasData=Object.keys(local.days).length>0;
-  if(hasData&&(!lb||Date.now()-lb>14*864e5))
-    h+='<div class="note" style="margin-top:14px">Data hanya ada di HP ini. '+(lb?'Cadangan terakhir '+Math.floor((Date.now()-lb)/864e5)+' hari lalu.':'Belum pernah dicadangkan.')+
-       ' <button class="btn" data-act="backup" style="margin-top:8px;width:100%">Cadangkan sekarang</button></div>';
   if(!es.length){
-    h+='<div class="card empty" style="margin-top:14px">Belum ada pemasukan di periode ini.<br><button class="btn" data-tab="add">Catat pemasukan pertama</button></div>';
+    h+='<div class="card empty" style="margin-top:14px">Belum ada pemasukan pribadi di periode ini.<button class="btn" data-tab="add">Catat pemasukan</button></div>';
     return h;
   }
   // chart
@@ -558,7 +564,7 @@ function listBody(){
   return h;
 }
 function newForm(){
-  var last=LS.get('bp.lastAcc');
+  var last=LS.get('bp.family.lastAcc');
   return {id:null, origDate:null, date:today(), account:(last&&accById(last)&&accById(last).active!==false)?last:'', amount:'', note:''};
 }
 function viewAdd(){
@@ -583,7 +589,8 @@ function viewAdd(){
 }
 function viewSettings(){
   var activeCount=S.cfg.accounts.filter(function(a){return a.active!==false}).length;
-  var h='<h2 style="margin-top:4px">Kelola rekening</h2>'+
+  var h='<div class="note" style="margin-top:4px">Login: '+esc(me?.email||'')+' ('+(me?.uid===ownerUid?'Anda':'Istri')+'). <button class="btn" style="margin-top:8px;width:100%" data-act="logout">Keluar / Ganti akun</button></div>'+
+     '<h2 style="margin-top:4px">Kelola rekening bersama</h2>'+
     '<button class="btn primary" data-act="jumpAddAccount" style="margin-bottom:12px">+ Tambah Rekening Baru</button>'+
     '<div class="card" style="padding:14px">';
   h+='<div class="hint" style="margin-bottom:14px">'+activeCount+' rekening aktif. Ubah nama atau nomor rekening di bawah ini.</div>';
@@ -598,9 +605,9 @@ function viewSettings(){
        (inactive?'Aktifkan kembali':'Hapus / Nonaktifkan')+'</button></div></div>';
   });
   if(!S.cfg.accounts.length) h+='<div class="hint" style="margin-bottom:12px">Belum ada rekening. Silakan tambah rekening baru.</div>';
-  h+='<div class="hint" style="margin:8px 0 14px">Rekening dengan riwayat transaksi akan dinonaktifkan agar catatan lama tetap aman. Rekening tanpa riwayat bisa dihapus.</div>';
+  h+='<div class="hint" style="margin:8px 0 14px">Untuk menjaga riwayat keluarga, rekening hanya dinonaktifkan. Data transaksi lama tetap tersimpan.</div>';
   h+='<div class="field"><label for="rate">Kurs: 1 Yen = berapa Rupiah</label><input id="rate" type="number" inputmode="decimal" min="1" step="0.01" value="'+esc(S.cfg.rate)+'">'+
-     '<div class="hint">Dipakai untuk menghitung total gabungan saja. Jumlah asli tidak berubah.</div></div>';
+     '<div class="hint">Digunakan untuk perkiraan total setara Yen di perangkat ini. Jumlah asli tidak berubah.</div></div>';
   h+='<button class="btn primary" data-act="saveCfg">Simpan pengaturan</button></div>';
 
   h+='<h2>Tambah rekening</h2><div class="card new-account">'+
@@ -618,12 +625,10 @@ function viewSettings(){
      '<button class="btn" data-act="csvAll">Unduh CSV semua data</button></div>'+
      '<div class="hint" style="margin-top:6px">Periode laporan dihitung dari tanggal 23 sampai tanggal 22 bulan berikutnya. File CSV bisa langsung dibuka di Excel atau Google Sheets.</div>';
 
-  h+='<h2>Cadangan</h2><div class="btns"><button class="btn" data-act="backup">Cadangkan</button><button class="btn" data-act="restore">Pulihkan</button></div>'+
-     '<div class="hint" style="margin-top:6px">Pulihkan menggabungkan isi file cadangan dengan data yang ada; tidak ada yang terhapus.</div>';
+  h+='<h2>Cadangan akun ini</h2><div class="stack"><button class="btn" data-act="backup">Cadangkan transaksi pribadi</button></div>'+
+     '<div class="hint" style="margin-top:6px">Cadangan ini hanya berisi transaksi akun yang sedang login. Impor cadangan lama dilakukan melalui halaman migrasi terpisah.</div>';
 
-  h+='<h2>Penyimpanan</h2><div class="note">Data tersimpan di HP ini saja dan tetap bisa dipakai tanpa internet. '+
-     'Kalau aplikasi dihapus atau HP rusak, data ikut hilang. Tekan Cadangkan secara rutin lalu simpan filenya ke Google Drive, LINE, atau email. '+
-     'Untuk pindah ke HP baru, pasang aplikasinya lalu tekan Pulihkan dan pilih file cadangan terakhir.</div>';
+  h+='<h2>Penyimpanan cloud</h2><div class="note">Rekening bersama dan transaksi pribadi tersimpan di Firebase. Perubahan dapat muncul di perangkat lain yang login. Gunakan akun masing-masing. Cadangkan data secara berkala.</div>';
   return h;
 }
 
@@ -668,7 +673,7 @@ async function saveEntry(){
   try{
     await store.put(entry);
     if(editing&&f.origDate&&f.origDate!==f.date){ var old=clone(entry); old.date=f.origDate; old.deleted=true; await store.put(old) }
-    LS.set('bp.lastAcc',acc.id);
+    LS.set('bp.family.lastAcc',acc.id);
     stamp(editing?'Diperbarui':'Tersimpan');
     if(editing){ S.form=null; S.tab='list'; if(periodOf(entry.date)!==S.month) store.setMonth(periodOf(entry.date)); render() }
     else {
