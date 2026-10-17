@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<meta name="theme-color" content="#0A7B54">
+<title>Impor Rekening Bersama | Buku Pemasukan</title>
+<style>
+:root{color-scheme:light;--bg:#eaf1ed;--paper:#fff;--ink:#1c2b3a;--muted:#566875;--rule:#d2ddd7;--soft:#f4f8f6;--green:#0a7b54;--red:#b52539}
+@media(prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#101819;--paper:#172326;--ink:#e4ede9;--muted:#afc0c3;--rule:#32464a;--soft:#203134;--green:#3dbe8c;--red:#ff8b98}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:570px;margin:auto;padding:24px 16px 72px}
+header{display:flex;gap:10px;align-items:center;font-size:1.05rem;font-weight:800;margin:0 0 24px}
+.seal{width:34px;height:34px;border:2px solid var(--red);border-radius:50%;color:var(--red);display:grid;place-items:center}
+h1{font-size:1.55rem;margin:0 0 8px}h2{font-size:1.13rem;margin:0 0 14px}
+p{color:var(--muted);margin:4px 0 14px}
+.card{padding:20px 18px;border:1px solid var(--rule);background:var(--paper);border-radius:16px;margin:16px 0}
+label{display:block;font-weight:650;margin:12px 0 6px}
+input[type=email],input[type=password],input[type=file]{width:100%;padding:12px;border:1px solid var(--rule);background:var(--paper);color:var(--ink);border-radius:10px;font:inherit}
+button{border:1px solid var(--rule);border-radius:10px;padding:12px 16px;background:var(--paper);color:var(--ink);cursor:pointer;font:inherit;font-weight:700}
+button.primary{background:var(--green);border-color:var(--green);color:#fff;width:100%;margin-top:14px}
+button:disabled{opacity:.55;cursor:not-allowed}
+small,.hint{color:var(--muted);font-size:.84rem}
+.note{background:var(--soft);border:1px solid var(--rule);border-radius:12px;padding:12px;color:var(--ink);margin:14px 0}
+.note.warn{border-color:var(--red)}
+.row{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;border-bottom:1px solid var(--rule);padding:12px 0}
+.row:last-child{border:0}.row strong{display:block}.row span{color:var(--muted);font-size:.82rem}
+.status{margin:18px 0;font-size:.93rem;color:var(--muted);min-height:23px}
+.status.error{color:var(--red)}
+.check{display:flex;gap:10px;align-items:flex-start;margin:16px 0}
+.check input{margin-top:5px;accent-color:var(--green)}
+.hidden{display:none!important}
+a{color:var(--green)}
+</style>
+</head>
+<body>
+<main>
+<header><span class="seal" aria-hidden="true">入</span> Buku Pemasukan</header>
+<h1>Impor rekening bersama</h1>
+<p>Langkah awal sinkronisasi. Pindahkan daftar rekening lama ke Firebase tanpa mengunggah transaksi pribadi.</p>
+<div class="note">Sebelum memulai, buka <a href="./">Buku Pemasukan lama</a> pada perangkat yang menyimpan data, lalu pilih <strong>Pengaturan → Cadangkan</strong>. Simpan file cadangan JSON di tempat aman.</div>
+<section id="loginBox" class="card">
+<h2>1. Login akun keluarga</h2>
+<form id="loginForm">
+<label for="email">Email</label><input id="email" type="email" autocomplete="username" required>
+<label for="password">Password</label><input id="password" type="password" autocomplete="current-password" required>
+<button class="primary" type="submit" id="loginBtn" disabled>Masuk ke Firebase</button>
+</form>
+</section>
+<section id="importBox" class="hidden">
+<div class="card">
+<h2>1. Akun terhubung</h2>
+<p id="who"></p>
+<div id="cloudInfo" class="note">Memeriksa rekening cloud...</div>
+<button id="logoutBtn" type="button">Keluar / Ganti akun</button>
+</div>
+<div class="card">
+<h2>2. Pilih sumber rekening</h2>
+<p>Pilih file <strong>cadangan-pemasukan-....json</strong> dari aplikasi Anda. Hanya nama, nomor, jenis, mata uang, dan status rekening yang akan diimpor.</p>
+<label for="backupFile">File cadangan JSON</label>
+<input type="file" id="backupFile" accept=".json,application/json">
+<p class="hint">Data transaksi pada file tidak akan diunggah atau diubah oleh halaman ini.</p>
+<button id="readLocalBtn" type="button">Atau baca rekening tersimpan di browser ini</button>
+<p class="hint">Pilihan ini hanya bekerja jika browser yang sama masih menyimpan pengaturan rekening Buku Pemasukan.</p>
+</div>
+<div class="card hidden" id="previewBox">
+<h2>3. Periksa daftar rekening</h2>
+<p id="previewLabel"></p>
+<div id="preview"></div>
+<label class="check"><input type="checkbox" id="confirmed"><span>Saya sudah menyimpan cadangan dan sudah memeriksa bahwa daftar rekening di atas benar.</span></label>
+<button class="primary" id="importBtn" type="button" disabled>Impor rekening ke Firebase</button>
+</div>
+</section>
+<div id="status" class="status" role="status" aria-live="polite">Menyiapkan koneksi Firebase...</div>
+<p class="hint">Halaman ini tidak mengubah transaksi maupun tampilan aplikasi utama. Setelah impor berhasil, rekening masih perlu dihubungkan ke aplikasi utama dalam tahap berikutnya.</p>
+</main>
+<script type="module">
+const config={
+  apiKey:"AIzaSyD3y0V9XPOXD9wyGmMHGM5moMXswNztmjc",
+  authDomain:"buku-pemasukan-keluarga.firebaseapp.com",
+  projectId:"buku-pemasukan-keluarga",
+  storageBucket:"buku-pemasukan-keluarga.firebasestorage.app",
+  messagingSenderId:"954291494798",
+  appId:"1:954291494798:web:0371fc24aabf2c054dcedf"
+};
+const FAMILY_ID="keluarga-utama";
+const MAX_ACCOUNTS=400;
+const $=(id)=>document.getElementById(id);
+function status(msg,error=false){$("status").textContent=msg;$("status").classList.toggle("error",error)}
+function failMessage(e){
+  const code=e&&e.code;
+  if(code==="auth/invalid-credential"||code==="auth/wrong-password")return "Email atau password tidak cocok.";
+  if(code==="permission-denied")return "Akses ditolak. Periksa akun keluarga dan Security Rules.";
+  if(code==="auth/network-request-failed"||!navigator.onLine)return "Tidak dapat terhubung. Periksa internet.";
+  return "Gagal: "+(e&&e.message||code||"Kesalahan tidak diketahui");
+}
+function parseAccounts(input){
+  const cfg=input&&input.cfg ? input.cfg : input;
+  if(!cfg||!Array.isArray(cfg.accounts))throw Error("File tidak berisi konfigurasi rekening Buku Pemasukan.");
+  if(cfg.accounts.length===0)throw Error("Tidak ada rekening di file.");
+  if(cfg.accounts.length>MAX_ACCOUNTS)throw Error("Jumlah rekening terlalu banyak untuk impor awal.");
+  const ids=new Set();
+  const accounts=cfg.accounts.map((a,i)=>{
+    if(!a||typeof a.id!=="string"||!/^[a-zA-Z0-9_-]+$/.test(a.id)||ids.has(a.id))
+      throw Error("ID rekening pada baris "+(i+1)+" tidak valid atau duplikat.");
+    ids.add(a.id);
+    if(typeof a.name!=="string"||!a.name.trim()||a.name.length>150)throw Error("Nama rekening ke-"+(i+1)+" tidak valid.");
+    if(a.currency!=="JPY"&&a.currency!=="IDR")throw Error("Mata uang rekening ke-"+(i+1)+" tidak valid.");
+    const type=a.currency==="IDR"?"idr":a.type==="yucho"?"yucho":"paypay";
+    return {id:a.id,name:a.name.trim(),no:typeof a.no==="string"?a.no.slice(0,150):"",
+      currency:a.currency,type,active:a.active!==false};
+  });
+  return accounts;
+}
+function showPreview(accounts,source){
+  stagedAccounts=accounts;
+  $("previewLabel").textContent=accounts.length+" rekening ditemukan dari "+source+".";
+  $("preview").replaceChildren();
+  for(const a of accounts){
+    const row=document.createElement("div");row.className="row";
+    const text=document.createElement("div");
+    const name=document.createElement("strong");name.textContent=a.name;
+    const no=document.createElement("span");no.textContent=a.no||"Tanpa nomor rekening";
+    text.append(name,no);
+    const currency=document.createElement("span");currency.textContent=a.currency+(a.active?"":" · nonaktif");
+    row.append(text,currency);$("preview").append(row);
+  }
+  $("confirmed").checked=false;
+  $("previewBox").classList.remove("hidden");
+  updateImportState();
+}
+let auth,db,cloudSize=null,stagedAccounts=null,role=null,busy=false,userId=null;
+let fire={};
+function updateImportState(){
+  $("importBtn").disabled=busy||cloudSize!==0||!stagedAccounts||!$("confirmed").checked||!role;
+}
+async function refreshCloud(){
+  const snapshot=await fire.getDocs(fire.collection(db,"families",FAMILY_ID,"accounts"));
+  cloudSize=snapshot.size;
+  $("cloudInfo").textContent=cloudSize===0 ?
+    "✓ Rekening cloud masih kosong. Impor awal dapat dilakukan." :
+    "Sudah ada "+cloudSize+" rekening di cloud. Demi keamanan, impor awal tidak dapat mengubah atau menimpa rekening tersebut.";
+  updateImportState();
+}
+try{
+  const [appM,authM,dbM]=await Promise.all([
+    import("https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js"),
+    import("https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js"),
+    import("https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js")
+  ]);
+  const app=appM.initializeApp(config);
+  auth=authM.getAuth(app); db=dbM.getFirestore(app);
+  fire={getDoc:dbM.getDoc,getDocs:dbM.getDocs,doc:dbM.doc,collection:dbM.collection,
+    writeBatch:dbM.writeBatch,signIn:authM.signInWithEmailAndPassword,signOut:authM.signOut};
+  $("loginBtn").disabled=false;
+  authM.onAuthStateChanged(auth,async(user)=>{
+    userId=user?user.uid:null;role=null;cloudSize=null;stagedAccounts=null;
+    $("loginBox").classList.toggle("hidden",!!user);
+    $("importBox").classList.toggle("hidden",!user);
+    $("previewBox").classList.add("hidden");
+    if(!user){status("Silakan login untuk melanjutkan.");return}
+    $("password").value="";
+    $("who").textContent="Login: "+user.email;
+    $("cloudInfo").textContent="Memeriksa akun dan rekening...";
+    status("Memeriksa akses keluarga...");
+    try{
+      const family=await fire.getDoc(fire.doc(db,"families",FAMILY_ID));
+      if(userId!==user.uid)return;
+      if(!family.exists())throw Error("Dokumen keluarga tidak ditemukan.");
+      const data=family.data();
+      role=user.uid===data.ownerUid?"Anda":user.uid===data.spouseUid?"Istri":null;
+      if(!role)throw Error("Akun bukan anggota keluarga yang terdaftar.");
+      $("who").textContent="Login: "+user.email+" (Peran: "+role+")";
+      await refreshCloud();
+      if(userId!==user.uid)return;
+      status("Akses Firebase berhasil. Cadangkan data aplikasi sebelum mengimpor rekening.");
+    }catch(e){$("cloudInfo").textContent="Pemeriksaan gagal.";status(failMessage(e),true);updateImportState()}
+  },e=>status(failMessage(e),true));
+  $("loginForm").addEventListener("submit",async(e)=>{
+    e.preventDefault();$("loginBtn").disabled=true;
+    try{await fire.signIn(auth,$("email").value.trim(),$("password").value)}
+    catch(e){status(failMessage(e),true)}
+    finally{$("loginBtn").disabled=false}
+  });
+  $("logoutBtn").addEventListener("click",async()=>{
+    try{await fire.signOut(auth)}catch(e){status(failMessage(e),true)}
+  });
+  $("backupFile").addEventListener("change",async(e)=>{
+    const file=e.target.files&&e.target.files[0];
+    if(!file)return;
+    if(file.size>50*1024*1024){status("File lebih besar dari 50 MB. Hubungi kami untuk alternatif impor.",true);return}
+    try{
+      const backup=JSON.parse(await file.text());
+      if(backup.app!=="buku-pemasukan"||!backup.cfg)throw Error("Pilih file cadangan asli Buku Pemasukan.");
+      showPreview(parseAccounts(backup),file.name);
+      status("Daftar rekening siap diperiksa. Transaksi belum diunggah.");
+    }catch(err){stagedAccounts=null;$("previewBox").classList.add("hidden");status(failMessage(err),true)}
+  });
+  $("readLocalBtn").addEventListener("click",()=>{
+    try{
+      const raw=localStorage.getItem("bp.cfg");
+      if(!raw)throw Error("Pengaturan rekening tidak ditemukan di browser ini. Gunakan file cadangan JSON.");
+      showPreview(parseAccounts(JSON.parse(raw)),"penyimpanan browser ini");
+      status("Daftar rekening berhasil dibaca. Periksa sebelum impor.");
+    }catch(err){stagedAccounts=null;$("previewBox").classList.add("hidden");status(failMessage(err),true)}
+  });
+  $("confirmed").addEventListener("change",updateImportState);
+  $("importBtn").addEventListener("click",async()=>{
+    if(busy||cloudSize!==0||!stagedAccounts||!role||!$("confirmed").checked||!auth.currentUser||auth.currentUser.uid!==userId)return;
+    busy=true;updateImportState();status("Memeriksa rekening di cloud sebelum impor...");
+    try{
+      await refreshCloud();
+      if(cloudSize!==0)throw Error("Rekening cloud sudah terisi. Impor dibatalkan agar data tidak tertimpa.");
+      const batch=fire.writeBatch(db);
+      for(const a of stagedAccounts){
+        const {id,...payload}=a;
+        batch.set(fire.doc(db,"families",FAMILY_ID,"accounts",id),payload);
+      }
+      // Satu transaksi batch: seluruh daftar rekening tersimpan bersama atau seluruhnya gagal.
+      await batch.commit();
+      await refreshCloud();
+      status("Berhasil. "+stagedAccounts.length+" rekening telah diimpor. Transaksi lama tidak diubah.");
+      $("confirmed").checked=false;$("previewBox").classList.add("hidden");
+    }catch(e){status(failMessage(e),true)}
+    finally{busy=false;updateImportState()}
+  });
+  status("Firebase terhubung. Silakan login.");
+}catch(e){status("SDK Firebase gagal dimuat: "+(e.message||e),true)}
+</script>
+</body>
+</html>
