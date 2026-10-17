@@ -505,7 +505,7 @@ function viewHome(){
      '<div class="book-head"><div class="lbl">Pemasukan pribadi dalam Yen</div><div class="big">'+fmt(jpy,'JPY')+'</div></div>'+
      '<div class="lines">'+
        '<div class="line"><span>Pemasukan dalam Rupiah</span><b>'+fmt(idr,'IDR')+'</b></div>'+
-       '<div class="line total"><span>Total gabungan</span><b>≈ '+fmt(jpy+idrJ,'JPY')+'<small>kurs 1 ¥ = Rp '+fmtNum(rate(),'IDR')+'</small></b></div>'+
+       '<div class="line total"><span>Total pribadi (setara Yen)</span><b>≈ '+fmt(jpy+idrJ,'JPY')+'<small>kurs 1 ¥ = Rp '+fmtNum(rate(),'IDR')+'</small></b></div>'+
        (S.month===periodOf(tDay)?'<div class="line"><span>Hari ini</span><b>'+fmt(todayJ,'JPY')+(todayI?' + '+fmt(todayI,'IDR'):'')+'</b></div>':'')+
        '<div class="line"><span>Jumlah transaksi</span><b>'+es.length+'</b></div>'+
      '</div></section>';
@@ -602,7 +602,7 @@ function viewSettings(){
        '<span class="cur">'+(a.currency==='IDR'?'IDR':'JPY')+'</span>'+
        '<div class="manage">'+(inactive?'<small>Nonaktif</small>':'')+
        '<button type="button" class="btn small'+(inactive?'':' danger')+'" data-act="'+(inactive?'reactivateAcc':'removeAcc')+'" data-acc-id="'+esc(a.id)+'">'+
-       (inactive?'Aktifkan kembali':'Hapus / Nonaktifkan')+'</button></div></div>';
+       (inactive?'Aktifkan kembali':'Nonaktifkan')+'</button></div></div>';
   });
   if(!S.cfg.accounts.length) h+='<div class="hint" style="margin-bottom:12px">Belum ada rekening. Silakan tambah rekening baru.</div>';
   h+='<div class="hint" style="margin:8px 0 14px">Untuk menjaga riwayat keluarga, rekening hanya dinonaktifkan. Data transaksi lama tetap tersimpan.</div>';
@@ -749,7 +749,7 @@ async function removeAccount(btn){
   if(!account||account.active===false)return;
   if(removeAccArmed!==btn){
     removeAccArmed=btn;btn.classList.add('armed');btn.textContent='Tekan lagi untuk nonaktifkan';
-    setTimeout(function(){if(removeAccArmed===btn){removeAccArmed=null;if(btn.isConnected){btn.classList.remove('armed');btn.textContent='Hapus / Nonaktifkan'}}},3500);
+    setTimeout(function(){if(removeAccArmed===btn){removeAccArmed=null;if(btn.isConnected){btn.classList.remove('armed');btn.textContent='Nonaktifkan'}}},3500);
     return;
   }
   removeAccArmed=null;S.busy=true;
