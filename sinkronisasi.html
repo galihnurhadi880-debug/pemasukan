@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<meta name="theme-color" content="#0a7b54">
+<title>Uji Sinkronisasi | Buku Pemasukan Keluarga</title>
+<style>
+:root{color-scheme:light;--bg:#eaf1ed;--paper:#fff;--ink:#1c2b3a;--muted:#526571;--rule:#d2ddd7;--soft:#f4f8f6;--green:#0a7b54;--red:#bb3447}
+@media(prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#0f1719;--paper:#162124;--ink:#e4ede9;--muted:#aab9ba;--rule:#314342;--soft:#233131;--green:#3dbe8c;--red:#ff929f}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:600px;margin:0 auto;padding:20px 16px 80px}header{display:flex;align-items:center;gap:12px;padding:10px 0 22px}
+header .seal{display:grid;place-items:center;width:36px;height:36px;border:2px solid var(--red);border-radius:50%;color:var(--red)}
+h1{font-size:1.6rem;line-height:1.3;margin:0 0 7px}h2{font-size:1.12rem;margin:0 0 14px}
+p{margin:6px 0 14px;color:var(--muted)}.card{background:var(--paper);border:1px solid var(--rule);border-radius:15px;padding:18px;margin:14px 0}
+label{display:block;font-weight:700;font-size:.92rem;margin:14px 0 6px}
+input,select,textarea{width:100%;font:inherit;color:var(--ink);background:var(--paper);border:1px solid var(--rule);padding:11px 12px;border-radius:10px;min-height:46px}
+textarea{min-height:70px}button{font:inherit;font-weight:700;cursor:pointer;color:var(--ink);border:1px solid var(--rule);background:var(--paper);padding:11px 15px;border-radius:10px;min-height:45px}
+button.primary{background:var(--green);border-color:var(--green);color:white;width:100%;margin-top:16px}
+button:disabled{opacity:.52;cursor:not-allowed}
+small,.hint{color:var(--muted);font-size:.83rem}.hidden{display:none!important}
+.pill{display:inline-block;border:1px solid var(--rule);border-radius:999px;padding:3px 10px;font-size:.8rem;color:var(--muted)}
+.row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--rule)}
+.row:last-child{border:0}.row strong{display:block;min-width:0;overflow-wrap:anywhere}.row small{display:block}
+.note{background:var(--soft);padding:12px;border-radius:10px;border:1px solid var(--rule);margin:14px 0;font-size:.9rem}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.kpi{padding:12px;border-radius:10px;background:var(--soft)}.kpi b{display:block;font-size:1.2rem;overflow-wrap:anywhere}.kpi small{display:block}
+.month{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:8px 0}
+.month button{min-width:46px}.month strong{text-align:center}
+.bad{color:var(--red)}.good{color:var(--green)}
+#status{min-height:24px;margin:16px 0}.footer{font-size:.86rem;margin-top:30px}a{color:var(--green)}
+.check{display:flex;align-items:flex-start;gap:8px}.check input{width:auto;min-height:0;margin-top:6px}
+</style>
+</head>
+<body>
+<main>
+<header><span class="seal" aria-hidden="true">入</span><strong>Buku Pemasukan Keluarga</strong><span class="pill">Uji sinkronisasi</span></header>
+<h1>Rekening bersama, catatan pribadi</h1>
+<p>Versi pengujian yang menggunakan Firebase. Catatan pada aplikasi Buku Pemasukan lama belum dipindahkan atau diubah.</p>
+<div class="note">Mulai dengan <strong>satu transaksi uji kecil</strong> saja. Hapus atau penyuntingan transaksi belum tersedia di halaman ini. Jangan menyalin data lama sebelum fitur migrasi siap.</div>
+<section id="loginPanel" class="card">
+<h2>Masuk ke akun</h2>
+<form id="loginForm">
+<label for="email">Email Firebase</label><input type="email" id="email" autocomplete="username" required>
+<label for="password">Password</label><input type="password" id="password" autocomplete="current-password" required>
+<button type="submit" id="loginButton" class="primary" disabled>Masuk</button>
+</form>
+</section>
+<section id="appPanel" class="hidden">
+<div class="card">
+<h2>Pengguna aktif</h2>
+<p id="identity"></p>
+<button id="logout" type="button">Keluar / Ganti akun</button>
+</div>
+<div class="card">
+<h2>Laporan keluarga</h2>
+<div class="month"><button id="previous" aria-label="Periode sebelumnya">‹</button><strong id="periodLabel"></strong><button id="next" aria-label="Periode berikutnya">›</button></div>
+<p class="hint">Total per mata uang. Tidak memakai kurs agar angka asli tetap jelas.</p>
+<div class="grid">
+<div class="kpi"><small>Anda sendiri</small><b id="ownJPY">¥0</b><span id="ownIDR">Rp 0</span></div>
+<div class="kpi"><small>Pasangan</small><b id="spouseJPY">¥0</b><span id="spouseIDR">Rp 0</span></div>
+</div>
+<div class="kpi" style="margin-top:10px"><small>Gabungan keluarga</small><b id="totalJPY">¥0</b><span id="totalIDR">Rp 0</span></div>
+<p class="hint" id="summaryInfo">Mengambil ringkasan...</p>
+</div>
+<div class="card">
+<h2>Catat pemasukan pribadi</h2>
+<form id="entryForm">
+<label for="account">Rekening tujuan bersama</label><select id="account" required></select>
+<label for="amount">Jumlah</label><input type="text" inputmode="numeric" id="amount" placeholder="Contoh: 50000" required>
+<label for="date">Tanggal</label><input type="date" id="date" required>
+<label for="note">Catatan (opsional)</label><input id="note" type="text" maxlength="250" placeholder="Contoh: Pemasukan harian">
+<button id="addEntry" class="primary" type="submit" disabled>Simpan transaksi uji ke akun saya</button>
+</form>
+<p class="hint">Hanya Anda dapat membaca rincian transaksi akun ini. Pasangan hanya melihat ringkasannya.</p>
+</div>
+<div class="card"><h2>Transaksi pribadi periode ini</h2><div id="entries">Mengambil transaksi...</div></div>
+<div class="card">
+<h2>Daftar rekening bersama</h2>
+<p id="accountCount" class="hint"></p>
+<div id="accounts"></div>
+<h2 style="margin-top:24px">Tambah rekening bersama</h2>
+<form id="accountForm">
+<label for="newName">Nama rekening</label><input id="newName" type="text" maxlength="100" required>
+<label for="newNo">Nomor rekening (opsional)</label><input id="newNo" type="text" maxlength="100">
+<label for="newCurrency">Jenis rekening</label>
+<select id="newCurrency"><option value="yucho">Bank Jepang / Yucho (JPY)</option><option value="paypay">Lainnya di Jepang (JPY)</option><option value="idr">Indonesia (IDR)</option></select>
+<button id="addAccount" type="submit" class="primary">+ Tambah rekening bersama</button>
+</form>
+<p class="hint">Kedua akun akan melihat rekening yang ditambahkan. Rekening yang tidak dipakai dapat dinonaktifkan.</p>
+</div>
+</section>
+<div id="status" role="status" aria-live="polite">Memuat Firebase...</div>
+<p class="footer"><a href="./">Kembali ke aplikasi lama</a>. Versi uji ini menggunakan database yang sama dengan impor 12 rekening Anda, tetapi belum melakukan migrasi transaksi.</p>
+</main>
+<script type="module">
+const config={
+  apiKey:"AIzaSyD3y0V9XPOXD9wyGmMHGM5moMXswNztmjc",
+  authDomain:"buku-pemasukan-keluarga.firebaseapp.com",
+  projectId:"buku-pemasukan-keluarga",
+  storageBucket:"buku-pemasukan-keluarga.firebasestorage.app",
+  messagingSenderId:"954291494798",
+  appId:"1:954291494798:web:0371fc24aabf2c054dcedf"
+};
+const FAMILY="keluarga-utama";
+const $=(id)=>document.getElementById(id);
+const fmt=(n,c)=>c==="IDR"?"Rp "+Math.round(n||0).toLocaleString("id-ID"):"¥"+Math.round(n||0).toLocaleString("ja-JP");
+function pad(n){return String(n).padStart(2,"0")}
+function ymd(d){return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate())}
+function periodOf(date){let y=date.getFullYear(),m=date.getMonth()+1;if(date.getDate()<23){m--;if(m===0){y--;m=12}}return y+"-"+pad(m)}
+function periodBounds(k){const y=+k.slice(0,4),m=+k.slice(5,7);return {start:ymd(new Date(y,m-1,23)),end:ymd(new Date(y,m,22))}}
+function shiftPeriod(k,steps){return ymd(new Date(+k.slice(0,4),+k.slice(5,7)-1+steps,1)).slice(0,7)}
+const initialPeriod=periodOf(new Date());
+let period=initialPeriod,accountList=[],privateEntries=[],selfSummary=null,otherSummary=null;
+let auth,db,F,activeUser=null,owner=null,spouse=null,role=null,listen=[];
+let loginBusy=false,writeBusy=false,accountBusy=false;
+function message(msg,error=false){$("status").textContent=msg;$("status").className=error?"bad":"good"}
+function problem(e){
+ if(e&&e.code==="permission-denied")return "Akses ditolak Firebase. Periksa Security Rules dan UID keluarga.";
+ if(e&&e.code==="auth/invalid-credential")return "Email atau password tidak sesuai.";
+ if(e&&e.code==="unavailable")return "Firestore tidak tersedia. Periksa koneksi internet.";
+ return "Terjadi kesalahan: "+(e&&e.message||e&&e.code||"Tidak diketahui");
+}
+function stopListeners(){for(const stop of listen){try{stop()}catch(e){}}listen=[]}
+function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+function accountSelect(){
+ const active=accountList.filter(x=>x.active!==false);
+ const old=$("account").value;
+ $("account").replaceChildren();
+ const empty=document.createElement("option");empty.value="";empty.textContent="Pilih rekening";$("account").append(empty);
+ for(const a of active){
+   const option=document.createElement("option");option.value=a.id;option.textContent=a.name+" ("+a.currency+")";$("account").append(option);
+ }
+ $("account").value=active.some(x=>x.id===old)?old:"";
+ $("addEntry").disabled=!active.length||!activeUser||writeBusy;
+}
+function accountsView(){
+ $("accountCount").textContent=accountList.length+" rekening tersimpan, "+accountList.filter(a=>a.active!==false).length+" aktif.";
+ const target=$("accounts");target.replaceChildren();
+ for(const acc of accountList){
+   const line=document.createElement("div");line.className="row";
+   const text=document.createElement("div");const name=document.createElement("strong");name.textContent=acc.name;
+   const sub=document.createElement("small");sub.textContent=(acc.no||"Tanpa nomor")+" · "+acc.currency+(acc.active===false?" · nonaktif":"");
+   text.append(name,sub);
+   const toggle=document.createElement("button");toggle.type="button";toggle.textContent=acc.active===false?"Aktifkan":"Nonaktifkan";
+   toggle.disabled=accountBusy;
+   toggle.addEventListener("click",()=>switchAccount(acc,toggle));
+   line.append(text,toggle);target.append(line);
+ }
+ accountSelect();
+}
+function summaryFrom(s){const data=s||{};return {jpy:typeof data.jpy==="number"?data.jpy:0,idr:typeof data.idr==="number"?data.idr:0,count:typeof data.count==="number"?data.count:0}}
+function renderSummaries(){
+ const me=summaryFrom(selfSummary),them=summaryFrom(otherSummary);
+ $("ownJPY").textContent=fmt(me.jpy,"JPY");$("ownIDR").textContent=fmt(me.idr,"IDR");
+ $("spouseJPY").textContent=fmt(them.jpy,"JPY");$("spouseIDR").textContent=fmt(them.idr,"IDR");
+ $("totalJPY").textContent=fmt(me.jpy+them.jpy,"JPY");$("totalIDR").textContent=fmt(me.idr+them.idr,"IDR");
+ $("summaryInfo").textContent="Ringkasan tersimpan: "+me.count+" transaksi Anda dan "+them.count+" transaksi pasangan. Catatan lama belum masuk ke Firebase.";
+}
+function renderEntries(){
+ const target=$("entries");target.replaceChildren();
+ if(!privateEntries.length){target.textContent="Belum ada transaksi pribadi pada periode ini.";return}
+ const sorted=privateEntries.slice().sort((a,b)=>b.date.localeCompare(a.date));
+ for(const entry of sorted){
+   const line=document.createElement("div");line.className="row";
+   const text=document.createElement("div");
+   const account=accountList.find(a=>a.id===entry.account);
+   const title=document.createElement("strong");title.textContent=(account?account.name:entry.account)+" · "+entry.date;
+   const note=document.createElement("small");note.textContent=entry.note||"Tanpa catatan";
+   const amount=document.createElement("strong");amount.textContent=fmt(entry.amount,entry.currency);
+   text.append(title,note);line.append(text,amount);target.append(line);
+ }
+}
+function sub(ref,callback){
+ listen.push(F.onSnapshot(ref,callback,err=>message(problem(err),true)));
+}
+function watchPeriod(){
+ stopListeners();if(!activeUser||!owner||!spouse)return;
+ $("periodLabel").textContent=(periodBounds(period).start)+" s.d. "+periodBounds(period).end;
+ $("summaryInfo").textContent="Mengambil laporan...";
+ const uid=activeUser.uid,other=uid===owner?spouse:owner;
+ selfSummary=null;otherSummary=null;privateEntries=[];renderSummaries();renderEntries();
+ const ownRef=F.doc(db,"families",FAMILY,"members",uid,"summaries",period);
+ const otherRef=F.doc(db,"families",FAMILY,"members",other,"summaries",period);
+ const range=periodBounds(period);
+ const txs=F.query(F.collection(db,"families",FAMILY,"members",uid,"transactions"),
+                  F.where("date",">=",range.start),F.where("date","<=",range.end));
+ sub(ownRef,s=>{if(activeUser&&activeUser.uid===uid){selfSummary=s.exists()?s.data():null;renderSummaries()}});
+ sub(otherRef,s=>{if(activeUser&&activeUser.uid===uid){otherSummary=s.exists()?s.data():null;renderSummaries()}});
+ sub(txs,s=>{if(activeUser&&activeUser.uid===uid){privateEntries=s.docs.map(d=>({id:d.id,...d.data()}));renderEntries()}});
+}
+function watchAccounts(){
+ if(!activeUser)return;
+ const uid=activeUser.uid;
+ listen.push(F.onSnapshot(F.collection(db,"families",FAMILY,"accounts"),
+   snap=>{if(!activeUser||activeUser.uid!==uid)return;accountList=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>a.name.localeCompare(b.name,"id"));accountsView();},
+   err=>message(problem(err),true)));
+}
+async function switchAccount(acc,button){
+ if(accountBusy||!activeUser)return;
+ accountBusy=true;button.disabled=true;
+ try{
+   await F.updateDoc(F.doc(db,"families",FAMILY,"accounts",acc.id),{active:acc.active===false});
+   message("Status rekening bersama diperbarui.");
+ }catch(e){message(problem(e),true)}
+ finally{accountBusy=false;button.disabled=false}
+}
+function newId(){return crypto.randomUUID?crypto.randomUUID().replace(/-/g,""):"acc"+Date.now().toString(36)+Math.random().toString(36).slice(2,12)}
+async function saveNewAccount(ev){
+ ev.preventDefault();if(accountBusy||!activeUser)return;
+ const name=$("newName").value.trim(),no=$("newNo").value.trim(),type=$("newCurrency").value;
+ if(!name)return message("Nama rekening belum diisi.",true);
+ if(!["yucho","paypay","idr"].includes(type))return message("Jenis rekening tidak dikenal.",true);
+ accountBusy=true;$("addAccount").disabled=true;
+ try{
+   await F.setDoc(F.doc(db,"families",FAMILY,"accounts","acc_"+newId()),{name,no,type,currency:type==="idr"?"IDR":"JPY",active:true});
+   $("newName").value="";$("newNo").value="";
+   message("Rekening bersama berhasil ditambahkan dan akan muncul pada kedua akun.");
+ }catch(e){message(problem(e),true)}
+ finally{accountBusy=false;$("addAccount").disabled=false}
+}
+async function saveEntry(ev){
+ ev.preventDefault();if(writeBusy||!activeUser)return;
+ const account=accountList.find(a=>a.id===$("account").value&&a.active!==false);
+ const date=$("date").value;
+ const amountRaw=$("amount").value.trim().replace(/[.,\s]/g,"");
+ const amount=Number(amountRaw),note=$("note").value.trim();
+ if(!account)return message("Pilih rekening yang aktif.",true);
+ if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||ymd(new Date(date+"T12:00:00"))!==date)return message("Tanggal tidak valid.",true);
+ if(!/^\d+$/.test(amountRaw)||!Number.isSafeInteger(amount)||amount<=0||amount>1e12)return message("Masukkan jumlah bulat yang benar.",true);
+ if(note.length>250)return message("Catatan terlalu panjang.",true);
+ if(!navigator.onLine)return message("Untuk pengujian ini, perangkat harus terhubung internet.",true);
+ const uid=activeUser.uid,k=periodOf(new Date(date+"T12:00:00"));
+ const trxId="tx_"+newId();
+ const entryRef=F.doc(db,"families",FAMILY,"members",uid,"transactions",trxId);
+ const summaryRef=F.doc(db,"families",FAMILY,"members",uid,"summaries",k);
+ writeBusy=true;$("addEntry").disabled=true;
+ try{
+   await F.runTransaction(db,async(tr)=>{
+     const snap=await tr.get(summaryRef);
+     const prior=summaryFrom(snap.exists()?snap.data():null);
+     tr.set(entryRef,{account:account.id,currency:account.currency,amount,date,note,createdAt:F.serverTimestamp(),ownerUid:uid});
+     tr.set(summaryRef,{jpy:prior.jpy+(account.currency==="JPY"?amount:0),
+       idr:prior.idr+(account.currency==="IDR"?amount:0),count:prior.count+1,
+       ownerUid:uid,period:k,updatedAt:F.serverTimestamp()});
+   });
+   $("amount").value="";$("note").value="";
+   message("Transaksi uji tersimpan untuk akun ini. Pasangan hanya dapat melihat ringkasan.");
+ }catch(e){message(problem(e),true)}
+ finally{writeBusy=false;$("addEntry").disabled=!accountList.some(a=>a.active!==false)}
+}
+function clearSession(){
+ stopListeners();activeUser=null;owner=null;spouse=null;role=null;
+ accountList=[];privateEntries=[];selfSummary=null;otherSummary=null;
+ $("password").value="";$("loginPanel").classList.remove("hidden");$("appPanel").classList.add("hidden");
+}
+try{
+ const [am,authm,dbm]=await Promise.all([
+ import("https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js"),
+ import("https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js"),
+ import("https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js")
+ ]);
+ const app=am.initializeApp(config);auth=authm.getAuth(app);db=dbm.getFirestore(app);
+ F={...dbm,signIn:authm.signInWithEmailAndPassword,signOut:authm.signOut};
+ $("loginButton").disabled=false;
+ authm.onAuthStateChanged(auth,async(user)=>{
+   clearSession();
+   if(!user){message("Firebase siap. Silakan login.");return}
+   try{
+     const family=await F.getDoc(F.doc(db,"families",FAMILY));
+     if(auth.currentUser?.uid!==user.uid)return;
+     if(!family.exists())throw Error("Keluarga tidak ditemukan.");
+     const data=family.data();owner=data.ownerUid;spouse=data.spouseUid;
+     role=user.uid===owner?"Anda":user.uid===spouse?"Istri":null;
+     if(!role)throw Error("Akun ini bukan anggota keluarga yang terdaftar.");
+     activeUser=user;
+     $("identity").textContent=user.email+" · Peran: "+role;
+     $("loginPanel").classList.add("hidden");$("appPanel").classList.remove("hidden");
+     $("date").value=ymd(new Date());
+     watchAccounts();watchPeriod();
+     message("Login berhasil. Daftar rekening dan laporan mengikuti perubahan Firebase.");
+   }catch(err){message(problem(err),true)}
+ },err=>message(problem(err),true));
+ $("loginForm").addEventListener("submit",async ev=>{
+   ev.preventDefault();if(loginBusy)return;
+   loginBusy=true;$("loginButton").disabled=true;
+   try{await F.signIn(auth,$("email").value.trim(),$("password").value)}
+   catch(err){message(problem(err),true)}
+   finally{loginBusy=false;$("loginButton").disabled=false}
+ });
+ $("logout").addEventListener("click",async()=>{try{await F.signOut(auth)}catch(err){message(problem(err),true)}});
+ $("previous").addEventListener("click",()=>{period=shiftPeriod(period,-1);watchPeriod()});
+ $("next").addEventListener("click",()=>{period=shiftPeriod(period,1);watchPeriod()});
+ $("entryForm").addEventListener("submit",saveEntry);
+ $("accountForm").addEventListener("submit",saveNewAccount);
+ message("Firebase siap. Silakan login.");
+}catch(err){message("Gagal memuat Firebase: "+(err.message||err),true)}
+</script>
+</body>
+</html>
