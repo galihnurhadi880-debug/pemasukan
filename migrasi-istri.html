@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="id"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex,nofollow">
+<meta name="theme-color" content="#0a7b54"><title>Migrasi Transaksi Istri | Buku Pemasukan</title>
+<style>
+:root{color-scheme:light;--bg:#eaf1ed;--paper:#fff;--ink:#1c2b3a;--muted:#566977;--rule:#d2ddd7;--green:#0a7b54;--soft:#f4f8f6;--red:#b13b46}
+@media(prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#10191b;--paper:#192626;--ink:#e4ede9;--muted:#b4c5c7;--rule:#314746;--green:#3dbe8c;--soft:#243533;--red:#ff96a2}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:610px;margin:auto;padding:25px 16px 72px}
+header{display:flex;align-items:center;gap:10px;font-size:1.08rem;font-weight:800;margin-bottom:25px}
+.mark{border:2px solid var(--red);color:var(--red);border-radius:50%;width:36px;height:36px;display:grid;place-items:center}
+h1{font-size:1.6rem;line-height:1.25;margin:0 0 10px}h2{font-size:1.1rem;margin:0 0 12px}
+p{color:var(--muted);margin:8px 0 14px}.card{background:var(--paper);padding:19px;border:1px solid var(--rule);border-radius:15px;margin:17px 0}
+.note{background:var(--soft);border:1px solid var(--rule);padding:13px;border-radius:10px;margin:14px 0}
+.warn{border-color:var(--red)}.row{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--rule)}.row:last-child{border:0}.row span:last-child{font-weight:700;text-align:right}
+label{display:block;font-weight:700;margin:14px 0 6px}
+input:not([type=checkbox]){width:100%;font:inherit;color:var(--ink);background:var(--paper);border:1px solid var(--rule);padding:12px;border-radius:10px}
+button{font:inherit;font-weight:700;cursor:pointer;color:var(--ink);background:var(--paper);padding:12px 15px;min-height:45px;border:1px solid var(--rule);border-radius:10px}
+button.primary{width:100%;background:var(--green);color:#fff;border-color:var(--green);margin-top:15px}
+button:disabled{opacity:.5;cursor:not-allowed}.hidden{display:none!important}.check{display:flex;align-items:flex-start;gap:10px}.check input{margin-top:5px;accent-color:var(--green)}
+small{color:var(--muted)}a{color:var(--green)}#status{white-space:pre-line;margin:16px 0;min-height:26px}.error{color:var(--red)}.success{color:var(--green)}
+progress{accent-color:var(--green);width:100%;height:16px;margin:12px 0}
+</style></head><body><main>
+<header><span class="mark">入</span>Buku Pemasukan Keluarga</header>
+<h1>Pindahkan transaksi lama ke akun istri</h1>
+<p>Semua transaksi aktif dalam cadangan lama akan menjadi transaksi pribadi istri. Rekening bersama dan transaksi pada aplikasi lama tidak diubah.</p>
+<div class="note warn">Sebelum melanjutkan, buat cadangan terbaru melalui <a href="./">Buku Pemasukan lama</a> → Pengaturan → Cadangkan. Hapus transaksi percobaan milik istri dari <a href="./sinkronisasi.html">aplikasi uji</a> jika masih ada. Jangan mencatat transaksi baru selama migrasi.</div>
+<section id="loginSection" class="card">
+<h2>1. Login akun istri</h2>
+<p>Jika yang tampil adalah akun suami, pilih Keluar, lalu login menggunakan akun istri.</p>
+<form id="loginForm"><label for="email">Email istri</label><input id="email" type="email" autocomplete="username" required>
+<label for="password">Password</label><input id="password" type="password" autocomplete="current-password" required>
+<button class="primary" id="loginBtn" type="submit" disabled>Login</button></form>
+</section>
+<section id="importSection" class="hidden">
+<div class="card"><h2>1. Akun tujuan</h2><p id="identity"></p><div class="note" id="cloudStatus">Memeriksa izin Firebase...</div>
+<button id="logout" type="button">Keluar / Ganti akun</button></div>
+<div class="card"><h2>2. Unggah cadangan ke halaman ini</h2>
+<p>Pilih file JSON yang didapat dari tombol Cadangkan pada aplikasi lama.</p>
+<label for="backupFile">File cadangan JSON</label><input type="file" id="backupFile" accept=".json,application/json">
+<p><small>File dibaca di browser. Transaksi dikirim ke Firebase hanya setelah Anda mengonfirmasi.</small></p></div>
+<div id="preview" class="card hidden"><h2>3. Periksa jumlah transaksi</h2>
+<div class="row"><span>Akun tujuan</span><span>Istri</span></div>
+<div class="row"><span>Transaksi aktif</span><span id="totalCount"></span></div>
+<div class="row"><span>Rekening digunakan</span><span id="usedAccounts"></span></div>
+<div class="row"><span>Periode laporan</span><span id="totalPeriods"></span></div>
+<div class="row"><span>Rentang tanggal</span><span id="dateRange"></span></div>
+<div class="row"><span>Total JPY</span><span id="totalJPY"></span></div>
+<div class="row"><span>Total IDR</span><span id="totalIDR"></span></div>
+<div class="note">Transaksi yang dihapus atau dipindahkan tanggalnya pada aplikasi lama tidak ikut dihitung. Impor yang terhenti bisa dilanjutkan dengan file yang sama tanpa menggandakan catatan.</div>
+<label class="check"><input id="confirmed" type="checkbox"><span>Saya sudah menyimpan cadangan. Semua transaksi lama ini milik istri dan jumlah yang ditampilkan sudah saya periksa.</span></label>
+<button id="importBtn" class="primary" disabled>Mulai migrasi ke akun istri</button>
+<div id="progressPanel" class="hidden"><progress id="bar" max="100" value="0"></progress><small id="progressText"></small></div>
+</div></section>
+<div id="status" role="status" aria-live="polite">Memuat Firebase...</div>
+<p><small>Setelah selesai, periksa laporan menggunakan <a href="./sinkronisasi.html">versi uji sinkronisasi</a>. Jangan menghapus cadangan lokal sebelum semua angka sesuai.</small></p>
+</main>
+<script type="module">
+const config={
+  apiKey:"AIzaSyD3y0V9XPOXD9wyGmMHGM5moMXswNztmjc",
+  authDomain:"buku-pemasukan-keluarga.firebaseapp.com",
+  projectId:"buku-pemasukan-keluarga",
+  storageBucket:"buku-pemasukan-keluarga.firebasestorage.app",
+  messagingSenderId:"954291494798",
+  appId:"1:954291494798:web:0371fc24aabf2c054dcedf"
+};
+const FAMILY="keluarga-utama",CHUNK=12;
+const $=id=>document.getElementById(id);
+let auth,db,F,spouseUid=null,accounts=new Map(),staged=[],busy=false;
+function message(s,isError=false){$("status").textContent=s;$("status").className=isError?"error":"success"}
+function humanError(e){
+ if(e?.code==="permission-denied")return "Akses ditolak Firebase. Periksa bahwa Anda login dengan akun istri.";
+ if(e?.code==="auth/invalid-credential")return "Email atau password tidak cocok.";
+ if(e?.code==="unavailable")return "Tidak dapat tersambung ke database. Periksa jaringan.";
+ return e?.message||String(e);
+}
+function dateValid(s){
+ if(typeof s!=="string"||!new RegExp("^[0-9]{4}-[0-9]{2}-[0-9]{2}$").test(s))return false;
+ const y=+s.slice(0,4),m=+s.slice(5,7),d=+s.slice(8,10);
+ if(y<2000||y>2100)return false;
+ const dt=new Date(y,m-1,d,12);
+ return dt.getFullYear()===y&&dt.getMonth()+1===m&&dt.getDate()===d;
+}
+function periodOf(s){
+ let y=+s.slice(0,4),m=+s.slice(5,7);
+ if(+s.slice(8,10)<23){m--;if(m===0){m=12;y--}}
+ return y+"-"+String(m).padStart(2,"0");
+}
+function validAmount(n){return Number.isSafeInteger(n)&&n>0&&n<=9999999999999}
+function parseBackup(obj){
+ if(!obj||obj.app!=="buku-pemasukan"||!obj.days||typeof obj.days!=="object"||Array.isArray(obj.days))
+    throw Error("Bukan file cadangan JSON Buku Pemasukan.");
+ const result=[],seen=new Set(),per=new Map();
+ for(const [day,items] of Object.entries(obj.days)){
+   if(!dateValid(day))throw Error("Tanggal dalam cadangan tidak valid: "+day);
+   if(!items||typeof items!=="object"||Array.isArray(items))throw Error("Format data "+day+" rusak.");
+   for(const [id,e] of Object.entries(items)){
+     if(!e||typeof e!=="object")throw Error("Data transaksi tidak valid pada "+day);
+     // Mengikuti fungsi flatten() aplikasi lama: hanya transaksi aktif dengan tanggal sesuai map.
+     if(e.deleted||e.date!==day)continue;
+     if(typeof e.id!=="string"||e.id!==id||!new RegExp("^[a-zA-Z0-9_-]{1,130}$").test(id))
+       throw Error("ID transaksi "+day+" tidak valid.");
+     if(!validAmount(e.amount)||!["JPY","IDR"].includes(e.currency))
+       throw Error("Jumlah atau mata uang pada "+day+" tidak valid.");
+     if(typeof e.account!=="string"||!accounts.has(e.account))
+       throw Error("Rekening "+e.account+" belum ada di Firebase. Migrasi dihentikan.");
+     if(accounts.get(e.account).currency!==e.currency)
+       throw Error("Mata uang transaksi berbeda dengan rekening "+e.account+".");
+     if(e.note!=null&&typeof e.note!=="string")throw Error("Ada catatan transaksi dengan format salah.");
+     const note=(e.note||"").trim();
+     if(note.length>2000)throw Error("Catatan pada "+day+" terlalu panjang.");
+     const docId="legacy_"+day.replaceAll("-","")+"_"+id;
+     if(seen.has(docId))throw Error("Transaksi berulang: "+docId);
+     seen.add(docId);
+     const k=periodOf(day),tot=per.get(k)||{JPY:0,IDR:0};
+     tot[e.currency]+=e.amount;
+     if(!Number.isSafeInteger(tot[e.currency]))throw Error("Total periode "+k+" terlalu besar.");
+     per.set(k,tot);
+     result.push({docId,legacyId:id,date:day,period:k,account:e.account,currency:e.currency,amount:e.amount,note});
+   }
+ }
+ if(!result.length)throw Error("Cadangan tidak memiliki transaksi aktif.");
+ result.sort((a,b)=>a.date.localeCompare(b.date)||a.docId.localeCompare(b.docId));
+ return result;
+}
+function resetPreview(){staged=[];$("preview").classList.add("hidden");$("confirmed").checked=false;$("importBtn").disabled=true;$("progressPanel").classList.add("hidden")}
+function showPreview(entries){
+ staged=entries;
+ const sum=(currency)=>entries.filter(e=>e.currency===currency).reduce((v,e)=>v+e.amount,0);
+ const money=(n,c)=>c==="IDR"?"Rp "+n.toLocaleString("id-ID"):"¥"+n.toLocaleString("ja-JP");
+ $("totalCount").textContent=entries.length.toLocaleString("id-ID");
+ $("usedAccounts").textContent=String(new Set(entries.map(e=>e.account)).size);
+ $("totalPeriods").textContent=String(new Set(entries.map(e=>e.period)).size);
+ $("dateRange").textContent=entries[0].date+" s.d. "+entries[entries.length-1].date;
+ $("totalJPY").textContent=money(sum("JPY"),"JPY");
+ $("totalIDR").textContent=money(sum("IDR"),"IDR");
+ $("confirmed").checked=false;$("preview").classList.remove("hidden");
+ updateBtn();
+}
+function updateBtn(){
+ $("importBtn").disabled=busy||!spouseUid||auth?.currentUser?.uid!==spouseUid||!staged.length||!$("confirmed").checked;
+}
+function totals(data){
+ if(!data)return {jpy:0,idr:0,count:0};
+ const x={jpy:data.jpy,idr:data.idr,count:data.count};
+ if(!Object.values(x).every(v=>Number.isSafeInteger(v)&&v>=0))
+   throw Error("Ringkasan Firebase tidak valid. Migrasi dibatalkan.");
+ return x;
+}
+function identical(old,e){
+ return old.importSource==="lokal-buku-pemasukan"&&old.ownerUid===spouseUid&&
+ old.date===e.date&&old.account===e.account&&old.currency===e.currency&&
+ old.amount===e.amount&&(old.note||"")===e.note;
+}
+async function uploadChunk(part){
+ if(auth.currentUser?.uid!==spouseUid||!navigator.onLine)throw Error("Akun istri harus aktif dan internet harus menyala.");
+ const txRefs=part.map(e=>F.doc(db,"families",FAMILY,"members",spouseUid,"transactions",e.docId));
+ const periods=[...new Set(part.map(e=>e.period))];
+ const sumRefs=periods.map(p=>F.doc(db,"families",FAMILY,"members",spouseUid,"summaries",p));
+ return F.runTransaction(db,async tr=>{
+   // Seluruh get terlebih dahulu, sebelum set.
+   const existing=await Promise.all(txRefs.map(r=>tr.get(r)));
+   const sums=await Promise.all(sumRefs.map(r=>tr.get(r)));
+   const delta=new Map(periods.map(k=>[k,{jpy:0,idr:0,count:0}]));
+   let added=0,duplicate=0;
+   for(let i=0;i<part.length;i++){
+     const e=part[i],old=existing[i];
+     if(old.exists()){
+       if(!identical(old.data(),e))throw Error("Konflik dokumen transaksi lama pada "+e.date+". Tidak ditimpa.");
+       duplicate++;continue;
+     }
+     const d=delta.get(e.period);
+     d[e.currency==="JPY"?"jpy":"idr"]+=e.amount;d.count++;added++;
+   }
+   const next=periods.map((k,i)=>{
+     const a=totals(sums[i].exists()?sums[i].data():null),d=delta.get(k);
+     const v={jpy:a.jpy+d.jpy,idr:a.idr+d.idr,count:a.count+d.count};
+     if(!Object.values(v).every(Number.isSafeInteger))throw Error("Total periode "+k+" melampaui batas.");
+     return v;
+   });
+   for(let i=0;i<part.length;i++){
+     if(existing[i].exists())continue;
+     const e=part[i];
+     tr.set(txRefs[i],{date:e.date,account:e.account,currency:e.currency,amount:e.amount,note:e.note,
+       ownerUid:spouseUid,legacyId:e.legacyId,importSource:"lokal-buku-pemasukan",
+       createdAt:F.serverTimestamp(),importedAt:F.serverTimestamp()});
+   }
+   for(let i=0;i<periods.length;i++){
+     if(!delta.get(periods[i]).count)continue;
+     tr.set(sumRefs[i],{...next[i],period:periods[i],ownerUid:spouseUid,updatedAt:F.serverTimestamp()});
+   }
+   return {added,duplicate};
+ });
+}
+async function migrate(){
+ if(busy||!staged.length||!$("confirmed").checked||auth.currentUser?.uid!==spouseUid)return;
+ if(!navigator.onLine)return message("Internet diperlukan untuk memulai.",true);
+ if(!confirm("Impor "+staged.length+" transaksi ke akun istri? Cadangan asli tidak akan diubah."))return;
+ busy=true;updateBtn();$("backupFile").disabled=true;$("logout").disabled=true;
+ $("progressPanel").classList.remove("hidden");$("bar").max=staged.length;$("bar").value=0;
+ let completed=0,added=0,duplicate=0;
+ try{
+   for(let i=0;i<staged.length;i+=CHUNK){
+     const batch=staged.slice(i,i+CHUNK);
+     const out=await uploadChunk(batch);
+     completed+=batch.length;added+=out.added;duplicate+=out.duplicate;
+     $("bar").value=completed;$("progressText").textContent=completed+" dari "+staged.length+" transaksi diproses";
+     message("Migrasi berjalan: "+completed+"/"+staged.length+". Ditambahkan: "+added+", sudah ada: "+duplicate+".");
+   }
+   message("Migrasi selesai. "+added+" transaksi baru disimpan, "+duplicate+" sudah pernah diimpor. Tidak ada transaksi ganda.");
+   $("confirmed").checked=false;
+ }catch(e){
+   message("Migrasi terhenti setelah "+completed+" transaksi diperiksa. "+humanError(e)+"\nGunakan file yang sama untuk melanjutkan, jangan membuat data ganda secara manual.",true);
+ }finally{busy=false;$("backupFile").disabled=false;$("logout").disabled=false;updateBtn()}
+}
+try{
+ const [a,b,c]=await Promise.all([
+   import("https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js"),
+   import("https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js"),
+   import("https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js")
+ ]);
+ const app=a.initializeApp(config);auth=b.getAuth(app);db=c.getFirestore(app);
+ F={...c,login:b.signInWithEmailAndPassword,logout:b.signOut};
+ $("loginBtn").disabled=false;
+ b.onAuthStateChanged(auth,async user=>{
+   resetPreview();spouseUid=null;accounts=new Map();
+   $("loginSection").classList.toggle("hidden",!!user);
+   $("importSection").classList.toggle("hidden",!user);
+   if(!user){message("Silakan login menggunakan akun istri.");return}
+   $("password").value="";$("identity").textContent=user.email+" · Memeriksa akun...";
+   try{
+     const family=await c.getDoc(c.doc(db,"families",FAMILY));
+     if(auth.currentUser?.uid!==user.uid)return;
+     if(!family.exists()||family.data().spouseUid!==user.uid)
+        throw Error("Akun ini bukan akun istri. Pilih Keluar dan login sebagai istri.");
+     const snap=await c.getDocs(c.collection(db,"families",FAMILY,"accounts"));
+     if(auth.currentUser?.uid!==user.uid)return;
+     for(const d of snap.docs){const v=d.data();if(["JPY","IDR"].includes(v.currency))accounts.set(d.id,v)}
+     if(!accounts.size)throw Error("Tidak ada rekening bersama di Firebase.");
+     spouseUid=user.uid;
+     $("identity").textContent="Akun istri: "+user.email;
+     $("cloudStatus").textContent=accounts.size+" rekening bersama ditemukan. Rekening tidak akan diubah.";
+     message("Akun istri terverifikasi. Pilih file cadangan transaksi.");
+   }catch(e){$("cloudStatus").textContent="Pemeriksaan akun gagal.";message(humanError(e),true)}
+   updateBtn();
+ },e=>message(humanError(e),true));
+ $("loginForm").addEventListener("submit",async ev=>{
+   ev.preventDefault();$("loginBtn").disabled=true;
+   try{await F.login(auth,$("email").value.trim(),$("password").value)}
+   catch(e){message(humanError(e),true)}
+   finally{$("loginBtn").disabled=false}
+ });
+ $("logout").addEventListener("click",async()=>{
+   if(busy)return;
+   try{await F.logout(auth)}catch(e){message(humanError(e),true)}
+ });
+ $("backupFile").addEventListener("change",async ev=>{
+   const file=ev.target.files?.[0];
+   if(!file||busy)return;
+   if(!spouseUid){resetPreview();return message("Harus menggunakan akun istri.",true)}
+   if(file.size>50*1024*1024){resetPreview();return message("File lebih besar dari 50 MB. Minta bantuan migrasi besar.",true)}
+   try{
+     const data=JSON.parse(await file.text());
+     showPreview(parseBackup(data));
+     message("Pratinjau siap. Periksa jumlah dan total sebelum menyetujui migrasi.");
+   }catch(e){resetPreview();message(humanError(e),true)}
+ });
+ $("confirmed").addEventListener("change",updateBtn);
+ $("importBtn").addEventListener("click",migrate);
+ message("Firebase terhubung. Silakan login.");
+}catch(e){message("Gagal memuat Firebase. "+humanError(e),true)}
+</script></body></html>
