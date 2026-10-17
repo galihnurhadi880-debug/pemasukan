@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<meta name="theme-color" content="#0A7B54">
+<title>Uji Firebase | Buku Pemasukan</title>
+<style>
+:root{color-scheme:light;--bg:#eaf1ed;--card:#fff;--ink:#1c2b3a;--muted:#536573;--green:#0a7b54;--border:#cfdbd5;--soft:#f4f8f6}
+@media(prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#101b1b;--card:#192827;--ink:#e6f0ed;--muted:#b3c5bf;--green:#45cca0;--border:#38504a;--soft:#243633}}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:520px;margin:0 auto;padding:28px 16px 80px}
+header{display:flex;align-items:center;gap:10px;margin-bottom:30px}
+.logo{display:grid;place-items:center;width:38px;height:38px;border:2px solid #c62e3a;color:#c62e3a;border-radius:50%;font-weight:800}
+header b{font-size:1.05rem}
+h1{font-size:1.55rem;margin:0 0 7px}
+h2{font-size:1.1rem;margin:0 0 14px}
+p{margin:0 0 16px;color:var(--muted)}
+.card{padding:22px;margin-top:18px;background:var(--card);border:1px solid var(--border);border-radius:16px}
+label{display:block;font-weight:650;margin:16px 0 6px}
+input{width:100%;padding:13px;border-radius:10px;border:1px solid var(--border);background:var(--card);color:var(--ink);font:inherit}
+button{padding:13px 16px;border-radius:10px;border:1px solid var(--border);font:inherit;font-weight:700;cursor:pointer;background:var(--card);color:var(--ink)}
+button.primary{width:100%;margin-top:20px;background:var(--green);color:#fff;border-color:var(--green)}
+button:disabled{opacity:.55;cursor:wait}
+.meta{background:var(--soft);padding:12px;border-radius:10px;color:var(--muted);font-size:.88rem;margin-top:12px}
+.good{color:#137d52}.bad{color:#ba3434}
+@media(prefers-color-scheme:dark){.good{color:#7be8bf}.bad{color:#ff9a9a}}
+#status{margin-top:16px;min-height:24px}
+.hidden{display:none}
+a{color:var(--green)}
+.footer{font-size:.84rem;margin-top:24px}
+</style>
+</head>
+<body>
+<main>
+<header><span class="logo" aria-hidden="true">入</span><b>Buku Pemasukan</b></header>
+<h1>Uji koneksi Firebase</h1>
+<p>Halaman ini khusus untuk menguji login Anda dan istri. Belum memindahkan, menghapus, atau menyinkronkan transaksi dari aplikasi lama.</p>
+<section class="card" id="signInBox">
+<h2>Masuk ke akun keluarga</h2>
+<form id="loginForm">
+<label for="email">Email</label>
+<input id="email" type="email" autocomplete="username" required>
+<label for="password">Password</label>
+<input id="password" type="password" autocomplete="current-password" required>
+<button class="primary" id="loginBtn" type="submit" disabled>Masuk dan periksa koneksi</button>
+</form>
+</section>
+<section class="card hidden" id="successBox">
+<h2>Hasil pemeriksaan</h2>
+<p id="hello"></p>
+<div id="familyStatus" class="meta">Memeriksa keanggotaan keluarga...</div>
+<div id="accountStatus" class="meta">Memeriksa akses rekening bersama...</div>
+<button id="logoutBtn" type="button" style="margin-top:18px">Keluar / Ganti akun</button>
+</section>
+<div id="status" role="status" aria-live="polite">Menghubungkan ke Firebase...</div>
+<p class="footer">Gunakan email dan password Firebase Authentication yang sudah Anda buat. Jangan bagikan password atau screenshot yang menampilkan password. <a href="./">Kembali ke Buku Pemasukan</a></p>
+</main>
+<script type="module">
+const config={
+  apiKey:"AIzaSyD3y0V9XPOXD9wyGmMHGM5moMXswNztmjc",
+  authDomain:"buku-pemasukan-keluarga.firebaseapp.com",
+  projectId:"buku-pemasukan-keluarga",
+  storageBucket:"buku-pemasukan-keluarga.firebasestorage.app",
+  messagingSenderId:"954291494798",
+  appId:"1:954291494798:web:0371fc24aabf2c054dcedf"
+};
+const $=(id)=>document.getElementById(id);
+function status(msg,bad=false){$("status").textContent=msg;$("status").className=bad?"bad":""}
+function errorText(e){
+  if(e.code==="auth/invalid-credential"||e.code==="auth/wrong-password"||e.code==="auth/user-not-found")return "Email atau password tidak cocok dengan akun Firebase.";
+  if(e.code==="auth/too-many-requests")return "Terlalu banyak percobaan. Coba lagi nanti.";
+  if(e.code==="auth/network-request-failed"||!navigator.onLine)return "Koneksi internet sedang bermasalah. Coba lagi saat online.";
+  if(e.code==="permission-denied")return "Akses Firestore ditolak. Periksa UID keluarga atau Security Rules.";
+  return "Terjadi kesalahan: "+(e.code||e.message||"Tidak diketahui");
+}
+let auth,db,signIn,signOut,getDoc,getDocs,doc,collection;
+try{
+  const [appModule,authModule,storeModule]=await Promise.all([
+    import("https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js"),
+    import("https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js"),
+    import("https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js")
+  ]);
+  const app=appModule.initializeApp(config);
+  auth=authModule.getAuth(app);
+  signIn=authModule.signInWithEmailAndPassword;
+  signOut=authModule.signOut;
+  db=storeModule.getFirestore(app);
+  getDoc=storeModule.getDoc;getDocs=storeModule.getDocs;doc=storeModule.doc;collection=storeModule.collection;
+  $("loginBtn").disabled=false;
+  authModule.onAuthStateChanged(auth,async(user)=>{
+    $("signInBox").classList.toggle("hidden",!!user);
+    $("successBox").classList.toggle("hidden",!user);
+    if(!user){status("Firebase terhubung. Silakan masuk.");return}
+    $("hello").textContent="Login berhasil: "+user.email;
+    $("password").value="";
+    $("familyStatus").textContent="Memeriksa keanggotaan keluarga...";
+    $("accountStatus").textContent="Menunggu pemeriksaan...";
+    try{
+      const snapshot=await getDoc(doc(db,"families","keluarga-utama"));
+      if(!snapshot.exists())throw new Error("Dokumen keluarga-utama belum ditemukan.");
+      const family=snapshot.data();
+      let role="";
+      if(user.uid===family.ownerUid)role="Anda";
+      else if(user.uid===family.spouseUid)role="Istri";
+      if(!role)throw new Error("Akun ini bukan anggota keluarga yang terdaftar.");
+      $("familyStatus").textContent="✓ Akses keluarga berhasil. Peran: "+role+".";
+      const accounts=await getDocs(collection(db,"families","keluarga-utama","accounts"));
+      $("accountStatus").textContent="✓ Akses rekening bersama berhasil. "+accounts.size+" rekening di cloud (belum diimpor).";
+      status("Semua pemeriksaan berhasil. Belum ada data transaksi yang diubah.");
+    }catch(e){
+      $("familyStatus").textContent="Pemeriksaan belum berhasil.";
+      $("accountStatus").textContent="Belum dapat memeriksa rekening.";
+      status(errorText(e),true);
+    }
+  },(e)=>status(errorText(e),true));
+  $("loginForm").addEventListener("submit",async(e)=>{
+    e.preventDefault();
+    $("loginBtn").disabled=true;
+    status("Memeriksa akun...");
+    try{await signIn(auth,$("email").value.trim(),$("password").value)}
+    catch(err){status(errorText(err),true)}
+    finally{$("loginBtn").disabled=false}
+  });
+  $("logoutBtn").addEventListener("click",async()=>{
+    try{await signOut(auth);status("Anda telah keluar. Silakan masuk dengan akun lain.")}
+    catch(e){status(errorText(e),true)}
+  });
+}catch(e){status("SDK Firebase tidak dapat dimuat. Pastikan koneksi internet tersedia. "+(e.message||""),true)}
+</script>
+</body>
+</html>
