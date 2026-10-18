@@ -1,6 +1,6 @@
 // Buku Pemasukan - offline support. Ganti VERSION setiap kali file aplikasi diperbarui.
-const VERSION = 'bp-v4-rekening';
-const CORE = ['./', './index.html', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'];
+const VERSION = 'bp-v5-keluarga-firebase';
+const CORE = ['./', './index.html', './buku-pemasukan-lokal-lama.html', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(VERSION).then(c => c.addAll(CORE)).then(() => self.skipWaiting()));
