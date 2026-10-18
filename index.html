@@ -11,7 +11,7 @@
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
 <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
 <meta name="mobile-web-app-capable" content="yes">
-<title>Buku Pemasukan</title>
+<title>Buku Pemasukan Keluarga</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&display=swap" rel="stylesheet">
@@ -197,11 +197,30 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--accent);outline-
 .toast.show{opacity:1}
 
 .splash{min-height:60vh;display:grid;place-items:center;color:var(--muted);text-align:center}
+.auth-page{max-width:560px;margin:auto;padding:30px 18px}
+.auth-page h1{font-size:1.6rem}.auth-page p{color:var(--muted)}
+.auth-card{padding:18px;margin-top:16px}.auth-card label{display:block;font-size:.9rem;font-weight:700;margin:10px 0 6px}
+.cloud-summary{padding:14px 16px}.cloud-summary .totals{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.cloud-summary .totals>div{padding:12px;border-radius:10px;background:var(--soft);min-width:0}
+.cloud-summary .totals strong{display:block;font-size:1.04rem;overflow-wrap:anywhere}
+.cloud-summary .totals small{font-size:.8rem;color:var(--muted)}
+@media(max-width:340px){.cloud-summary .totals{grid-template-columns:1fr}}
 .hidden{display:none !important}
 </style>
 </head>
 <body>
-<div class="app">
+<section id="authGate" class="auth-page">
+ <header class="top"><div class="brand"><span class="seal" aria-hidden="true">入</span>Buku Pemasukan Keluarga</div></header>
+ <h1>Masuk ke Buku Pemasukan</h1>
+ <p>Anda dan istri menggunakan rekening bersama, tetapi transaksi pribadi tetap terpisah.</p>
+ <div class="card auth-card">
+ <form id="loginForm">
+ <label for="loginEmail">Email</label><input id="loginEmail" type="email" autocomplete="username" required>
+ <label for="loginPassword">Password</label><input id="loginPassword" type="password" autocomplete="current-password" required>
+ <button class="btn primary" id="loginButton" type="submit" disabled style="margin-top:16px">Masuk</button>
+ </form><div id="loginStatus" class="hint" role="status" aria-live="polite" style="margin-top:12px">Menghubungkan Firebase...</div>
+ </div></section>
+<div class="app hidden" id="familyApp">
   <header class="top">
     <div class="brand"><span class="seal" aria-hidden="true">入</span>Buku Pemasukan</div>
     <div class="mode" id="mode"></div>
@@ -209,7 +228,7 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--accent);outline-
   <main id="view"><div class="splash">Menyiapkan buku kas…</div></main>
 </div>
 
-<nav class="tabs" aria-label="Menu">
+<nav class="tabs hidden" id="familyTabs" aria-label="Menu">
   <div class="in">
     <button class="tab" data-tab="home" aria-current="page">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11l8-7 8 7v9a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1z"/></svg>
@@ -231,9 +250,59 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--accent);outline-
 <input type="file" id="restoreFile" accept=".json,application/json" class="hidden">
 
 <script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function() {
+    navigator.serviceWorker.register('./sw.js')
+      .then(function(reg) { reg.update().catch(function() {}); })
+      .catch(function() {});
+  });
+}
+</script>
+<script type="module">
+import {initializeApp} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
+import {getAuth,onAuthStateChanged,signInWithEmailAndPassword,signOut} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js";
+import {getFirestore,doc,collection,query,where,getDoc,getDocs,onSnapshot,runTransaction,serverTimestamp,setDoc,updateDoc,writeBatch} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js";
 (function(){
 "use strict";
 
+/* ---------- Firebase ---------- */
+const firebaseConfig={
+  apiKey:"AIzaSyD3y0V9XPOXD9wyGmMHGM5moMXswNztmjc",
+  authDomain:"buku-pemasukan-keluarga.firebaseapp.com",
+  projectId:"buku-pemasukan-keluarga",
+  storageBucket:"buku-pemasukan-keluarga.firebasestorage.app",
+  messagingSenderId:"954291494798",
+  appId:"1:954291494798:web:0371fc24aabf2c054dcedf"
+};
+const FAMILY_ID="keluarga-utama";
+const fbApp=initializeApp(firebaseConfig),fbAuth=getAuth(fbApp),db=getFirestore(fbApp);
+let me=null,ownerUid=null,spouseUid=null,acctUnsub=null,periodUnsubs=[],myTotal=null,spouseTotal=null,ready=false;
+function txCollection(user){return collection(db,"families",FAMILY_ID,"members",user,"transactions")}
+function summaryRef(user,period){return doc(db,"families",FAMILY_ID,"members",user,"summaries",period)}
+function accountRef(id){return doc(db,"families",FAMILY_ID,"accounts",id)}
+function online(){if(!navigator.onLine)throw Error("Tidak ada koneksi internet. Coba lagi saat online.")}
+function who(){if(!me)throw Error("Silakan login dahulu.");return me.uid}
+function summaryNumbers(s){
+ if(!s)return {jpy:0,idr:0,count:0};
+ const n={jpy:s.jpy,idr:s.idr,count:s.count};
+ if(!Object.values(n).every(v=>Number.isSafeInteger(v)&&v>=0))throw Error("Ringkasan Firebase tidak valid.");
+ return n;
+}
+function changeTotals(s,currency,amount,count){
+ const n={jpy:s.jpy+(currency==="JPY"?amount:0),idr:s.idr+(currency==="IDR"?amount:0),count:s.count+count};
+ if(!Object.values(n).every(v=>Number.isSafeInteger(v)&&v>=0))throw Error("Ringkasan tidak sesuai.");
+ return n;
+}
+function validDay(s){
+ if(!/^\d{4}-\d{2}-\d{2}$/.test(s))return false;
+ const n=s.split("-").map(Number),dt=new Date(n[0],n[1]-1,n[2],12);
+ return dt.getFullYear()===n[0]&&dt.getMonth()+1===n[1]&&dt.getDate()===n[2];
+}
+function cloudError(e){
+ if(e&&e.code==="permission-denied")return "Akses ditolak. Periksa akun dan keamanan Firebase.";
+ if(e&&e.code==="auth/invalid-credential")return "Email atau password salah.";
+ return e&&e.message||"Koneksi gagal. Coba lagi.";
+}
 /* ---------- defaults ---------- */
 var YUCHO = [
   ['Miyamoto Airi','12290-16129451'], ['Harumi Fermata','12200-36014001'], ['Miyamoto Yuya','12230-820779'],
@@ -244,7 +313,7 @@ var YUCHO = [
 var DEFAULT_ACCOUNTS = YUCHO.map(function(y,i){return {id:'yucho'+(i+1), name:y[0], no:y[1], type:'yucho', currency:'JPY'}});
 DEFAULT_ACCOUNTS.push({id:'paypay', name:'PayPay', no:'', type:'paypay', currency:'JPY'});
 DEFAULT_ACCOUNTS.push({id:'idr', name:'Rekening Indonesia', no:'', type:'idr', currency:'IDR'});
-var CFG_V = 3;
+var CFG_V = 4;
 var DEFAULT_CFG = {v:CFG_V, accounts:DEFAULT_ACCOUNTS, rate:108};
 /* Periode laporan: tanggal 23 sampai tanggal 22 bulan berikutnya. Periode diberi kode bulan awalnya (YYYY-MM). */
 var PERIOD_START = 23;
@@ -302,34 +371,102 @@ function normCfg(c){
   out.v=CFG_V;
   return out;
 }
+function createdAtMs(e){var x=e&&e.createdAt;return typeof x==='number'?x:(x&&typeof x.toMillis==='function'?x.toMillis():0)}
 function monthEntries(){
   var out=[];
   Object.keys(S.days).forEach(function(d){
     var m=S.days[d]||{};
     Object.keys(m).forEach(function(id){var e=m[id]; if(e&&!e.deleted&&e.date===d) out.push(e)});
   });
-  out.sort(function(a,b){return a.date<b.date?1:a.date>b.date?-1:(b.createdAt||0)-(a.createdAt||0)});
+  out.sort(function(a,b){return a.date<b.date?1:a.date>b.date?-1:createdAtMs(b)-createdAtMs(a)});
   return out;
 }
 
-/* ---------- storage: local ---------- */
-function loadLocal(){
-  local=LS.get('bp.data')||{days:{}}; if(!local.days) local.days={};
-  S.cfg=normCfg(LS.get('bp.cfg'));
+/* ---------- cloud storage ---------- */
+function stopPeriod(){periodUnsubs.forEach(fn=>{try{fn()}catch(e){}});periodUnsubs=[]}
+function stopAll(){stopPeriod();if(acctUnsub){try{acctUnsub()}catch(e){}acctUnsub=null}}
+function groupEntries(list){
+  const days={};
+  list.forEach(e=>{if(!days[e.date])days[e.date]={};days[e.date][e.id]=e});
+  return days;
 }
-function saveLocal(){ if(!LS.set('bp.data',local)) toast('Penyimpanan HP penuh. Cadangkan lalu kosongkan ruang.') }
-function localMonth(){
-  var r=periodRange(S.month), d={}; Object.keys(local.days).forEach(function(k){ if(k>=r.start&&k<=r.end) d[k]=local.days[k] }); S.days=d;
+function fromAccount(s){
+  const a=s.data(),currency=a.currency==="IDR"?"IDR":"JPY";
+  return {id:s.id,name:String(a.name||"Rekening"),no:typeof a.no==="string"?a.no:"",
+    currency,type:currency==="IDR"?"idr":a.type==="yucho"?"yucho":"paypay",active:a.active!==false};
 }
-
-/* ---------- store API ---------- */
+function watchAccounts(){
+  if(acctUnsub){acctUnsub();acctUnsub=null}
+  acctUnsub=onSnapshot(collection(db,"families",FAMILY_ID,"accounts"),snapshot=>{
+    S.cfg.accounts=snapshot.docs.map(fromAccount).sort((a,b)=>a.name.localeCompare(b.name,"id"));
+    if(S.tab!=="add"&&S.tab!=="settings")refresh();
+  },e=>toast(cloudError(e)));
+}
+function watchMonth(){
+  stopPeriod();if(!me)return;
+  const current=S.month,user=me.uid,other=user===ownerUid?spouseUid:ownerUid,r=periodRange(current);
+  S.days={};myTotal=null;spouseTotal=null;
+  const q=query(txCollection(user),where("date",">=",r.start),where("date","<=",r.end));
+  periodUnsubs.push(onSnapshot(q,s=>{
+    if(!me||me.uid!==user||S.month!==current)return;
+    S.days=groupEntries(s.docs.map(d=>({id:d.id,...d.data()})));refresh();
+  },e=>toast(cloudError(e))));
+  periodUnsubs.push(onSnapshot(summaryRef(user,current),s=>{
+    if(!me||me.uid!==user||S.month!==current)return;
+    myTotal=s.exists()?s.data():null;
+    if(S.tab==="home")refresh();
+  },e=>toast(cloudError(e))));
+  periodUnsubs.push(onSnapshot(summaryRef(other,current),s=>{
+    if(!me||me.uid!==user||S.month!==current)return;
+    spouseTotal=s.exists()?s.data():null;
+    if(S.tab==="home")refresh();
+  },e=>toast(cloudError(e))));
+}
+async function saveCloudEntry(entry){
+  online();const user=who(),target=doc(txCollection(user),entry.id);
+  await runTransaction(db,async tr=>{
+    const old=await tr.get(target),oldData=old.exists()?old.data():null;
+    const newPeriod=periodOf(entry.date),oldPeriod=oldData?periodOf(oldData.date):null;
+    const periods=[...new Set([newPeriod,oldPeriod].filter(Boolean))];
+    const refs=periods.map(k=>summaryRef(user,k));
+    const snaps=await Promise.all(refs.map(r=>tr.get(r)));
+    const totals={};periods.forEach((k,i)=>{totals[k]=summaryNumbers(snaps[i].exists()?snaps[i].data():null)});
+    if(oldData){
+      if(oldData.ownerUid&&oldData.ownerUid!==user)throw Error("Ini bukan transaksi milik Anda.");
+      totals[oldPeriod]=changeTotals(totals[oldPeriod],oldData.currency,-oldData.amount,-1);
+    }
+    if(!entry.deleted)totals[newPeriod]=changeTotals(totals[newPeriod],entry.currency,entry.amount,1);
+    if(entry.deleted){
+      if(!oldData)throw Error("Transaksi tidak ditemukan.");
+      tr.delete(target);
+    }else{
+      tr.set(target,{date:entry.date,account:entry.account,currency:entry.currency,
+        amount:entry.amount,note:entry.note||"",ownerUid:user,
+        createdAt:oldData?.createdAt||serverTimestamp(),updatedAt:serverTimestamp()});
+    }
+    for(const k of periods)tr.set(summaryRef(user,k),{...totals[k],ownerUid:user,period:k,updatedAt:serverTimestamp()});
+  });
+}
+async function allCloudDays(){
+  const currentUser=who(),snapshot=await getDocs(txCollection(currentUser));
+  return groupEntries(snapshot.docs.map(d=>({id:d.id,...d.data()})));
+}
 var store={
-  put: async function(entry){
-    (local.days[entry.date]=local.days[entry.date]||{})[entry.id]=entry; saveLocal(); localMonth();
+  put:saveCloudEntry,
+  saveCfg:async function(cfg){
+    online();who();
+    const batch=writeBatch(db);let edited=0;
+    for(const a of cfg.accounts){
+      const existing=accById(a.id);
+      if(existing&&(a.name!==existing.name||a.no!==existing.no)){
+        batch.update(accountRef(a.id),{name:a.name,no:a.no});edited++;
+      }
+    }
+    if(edited){await batch.commit();await reloadAccounts()}
+    if(Number(cfg.rate)>0){S.cfg.rate=Number(cfg.rate);LS.set("bp.family.rate",S.cfg.rate)}
   },
-  saveCfg: async function(cfg){ if(!LS.set('bp.cfg',normCfg(cfg))) throw {code:'quota_exceeded'}; S.cfg=normCfg(cfg) },
-  setMonth: function(m){ S.month=m; localMonth(); refresh() },
-  allDays: async function(){ return clone(local.days) }
+  setMonth:function(month){S.month=month;watchMonth();refresh()},
+  allDays:allCloudDays
 };
 
 /* ---------- ui helpers ---------- */
@@ -344,8 +481,8 @@ function errMsg(e){
   return 'Gagal menyimpan. Periksa koneksi internet lalu coba lagi.';
 }
 function modeBadge(){
-  var m=$('mode'); m.className='mode';
-  m.textContent=new Date().toLocaleDateString('id-ID',{day:'numeric',month:'short'});
+ var m=$('mode');m.className='mode';
+ m.textContent=me?(me.uid===ownerUid?'Anda':'Istri')+' · Cloud':'';
 }
 function monthBar(){
   return '<div class="month"><button data-act="prev" aria-label="Periode sebelumnya">‹</button><strong>'+esc(monthLabel(S.month))+
@@ -364,21 +501,26 @@ function viewHome(){
   es.forEach(function(e){ if(e.date===tDay){ if(e.currency==='IDR') todayI+=e.amount; else todayJ+=e.amount } });
 
   var h=monthBar();
+  const own=summaryNumbers(myTotal),other=summaryNumbers(spouseTotal);
+  const ownLabel=me&&me.uid===ownerUid?"Anda":"Istri";
+  const otherLabel=me&&me.uid===ownerUid?"Istri":"Anda";
+  h+='<h2>Laporan keluarga bersama</h2><div class="card cloud-summary"><div class="totals">'+
+     '<div><small>'+ownLabel+' (akun ini)</small><strong>'+fmt(own.jpy,'JPY')+'</strong><span>'+fmt(own.idr,'IDR')+'</span></div>'+
+     '<div><small>'+otherLabel+'</small><strong>'+fmt(other.jpy,'JPY')+'</strong><span>'+fmt(other.idr,'IDR')+'</span></div>'+
+     '</div><div class="line total" style="margin-top:12px;padding:10px 0"><span>Total keluarga</span><b>'+
+     fmt(own.jpy+other.jpy,'JPY')+'<small>'+fmt(own.idr+other.idr,'IDR')+'</small></b></div>'+
+     '<div class="cloud-note">'+(own.count+other.count)+' transaksi keluarga. Detail transaksi pasangan tetap pribadi.</div></div>';
   h+='<section class="book" aria-label="Ringkasan periode">'+
-     '<div class="book-head"><div class="lbl">Pemasukan dalam Yen</div><div class="big">'+fmt(jpy,'JPY')+'</div></div>'+
+     '<div class="book-head"><div class="lbl">Pemasukan pribadi dalam Yen</div><div class="big">'+fmt(jpy,'JPY')+'</div></div>'+
      '<div class="lines">'+
        '<div class="line"><span>Pemasukan dalam Rupiah</span><b>'+fmt(idr,'IDR')+'</b></div>'+
-       '<div class="line total"><span>Total gabungan</span><b>≈ '+fmt(jpy+idrJ,'JPY')+'<small>kurs 1 ¥ = Rp '+fmtNum(rate(),'IDR')+'</small></b></div>'+
+       '<div class="line total"><span>Total pribadi (setara Yen)</span><b>≈ '+fmt(jpy+idrJ,'JPY')+'<small>kurs 1 ¥ = Rp '+fmtNum(rate(),'IDR')+'</small></b></div>'+
        (S.month===periodOf(tDay)?'<div class="line"><span>Hari ini</span><b>'+fmt(todayJ,'JPY')+(todayI?' + '+fmt(todayI,'IDR'):'')+'</b></div>':'')+
        '<div class="line"><span>Jumlah transaksi</span><b>'+es.length+'</b></div>'+
      '</div></section>';
 
-  var lb=LS.get('bp.lastBackup'), hasData=Object.keys(local.days).length>0;
-  if(hasData&&(!lb||Date.now()-lb>14*864e5))
-    h+='<div class="note" style="margin-top:14px">Data hanya ada di HP ini. '+(lb?'Cadangan terakhir '+Math.floor((Date.now()-lb)/864e5)+' hari lalu.':'Belum pernah dicadangkan.')+
-       ' <button class="btn" data-act="backup" style="margin-top:8px;width:100%">Cadangkan sekarang</button></div>';
   if(!es.length){
-    h+='<div class="card empty" style="margin-top:14px">Belum ada pemasukan di periode ini.<br><button class="btn" data-tab="add">Catat pemasukan pertama</button></div>';
+    h+='<div class="card empty" style="margin-top:14px">Belum ada pemasukan pribadi di periode ini.<button class="btn" data-tab="add">Catat pemasukan</button></div>';
     return h;
   }
   // chart
@@ -431,7 +573,7 @@ function listBody(){
   return h;
 }
 function newForm(){
-  var last=LS.get('bp.lastAcc');
+  var last=LS.get('bp.family.lastAcc');
   return {id:null, origDate:null, date:today(), account:(last&&accById(last)&&accById(last).active!==false)?last:'', amount:'', note:''};
 }
 function viewAdd(){
@@ -456,7 +598,8 @@ function viewAdd(){
 }
 function viewSettings(){
   var activeCount=S.cfg.accounts.filter(function(a){return a.active!==false}).length;
-  var h='<h2 style="margin-top:4px">Kelola rekening</h2>'+
+  var h='<div class="note" style="margin-top:4px">Login: '+esc(me?.email||'')+' ('+(me?.uid===ownerUid?'Anda':'Istri')+'). <button class="btn" style="margin-top:8px;width:100%" data-act="logout">Keluar / Ganti akun</button></div>'+
+     '<h2 style="margin-top:4px">Kelola rekening bersama</h2>'+
     '<button class="btn primary" data-act="jumpAddAccount" style="margin-bottom:12px">+ Tambah Rekening Baru</button>'+
     '<div class="card" style="padding:14px">';
   h+='<div class="hint" style="margin-bottom:14px">'+activeCount+' rekening aktif. Ubah nama atau nomor rekening di bawah ini.</div>';
@@ -468,12 +611,12 @@ function viewSettings(){
        '<span class="cur">'+(a.currency==='IDR'?'IDR':'JPY')+'</span>'+
        '<div class="manage">'+(inactive?'<small>Nonaktif</small>':'')+
        '<button type="button" class="btn small'+(inactive?'':' danger')+'" data-act="'+(inactive?'reactivateAcc':'removeAcc')+'" data-acc-id="'+esc(a.id)+'">'+
-       (inactive?'Aktifkan kembali':'Hapus / Nonaktifkan')+'</button></div></div>';
+       (inactive?'Aktifkan kembali':'Nonaktifkan')+'</button></div></div>';
   });
   if(!S.cfg.accounts.length) h+='<div class="hint" style="margin-bottom:12px">Belum ada rekening. Silakan tambah rekening baru.</div>';
-  h+='<div class="hint" style="margin:8px 0 14px">Rekening dengan riwayat transaksi akan dinonaktifkan agar catatan lama tetap aman. Rekening tanpa riwayat bisa dihapus.</div>';
+  h+='<div class="hint" style="margin:8px 0 14px">Untuk menjaga riwayat keluarga, rekening hanya dinonaktifkan. Data transaksi lama tetap tersimpan.</div>';
   h+='<div class="field"><label for="rate">Kurs: 1 Yen = berapa Rupiah</label><input id="rate" type="number" inputmode="decimal" min="1" step="0.01" value="'+esc(S.cfg.rate)+'">'+
-     '<div class="hint">Dipakai untuk menghitung total gabungan saja. Jumlah asli tidak berubah.</div></div>';
+     '<div class="hint">Digunakan untuk perkiraan total setara Yen di perangkat ini. Jumlah asli tidak berubah.</div></div>';
   h+='<button class="btn primary" data-act="saveCfg">Simpan pengaturan</button></div>';
 
   h+='<h2>Tambah rekening</h2><div class="card new-account">'+
@@ -491,17 +634,17 @@ function viewSettings(){
      '<button class="btn" data-act="csvAll">Unduh CSV semua data</button></div>'+
      '<div class="hint" style="margin-top:6px">Periode laporan dihitung dari tanggal 23 sampai tanggal 22 bulan berikutnya. File CSV bisa langsung dibuka di Excel atau Google Sheets.</div>';
 
-  h+='<h2>Cadangan</h2><div class="btns"><button class="btn" data-act="backup">Cadangkan</button><button class="btn" data-act="restore">Pulihkan</button></div>'+
-     '<div class="hint" style="margin-top:6px">Pulihkan menggabungkan isi file cadangan dengan data yang ada; tidak ada yang terhapus.</div>';
+  h+='<h2>Cadangan akun ini</h2><div class="stack"><button class="btn" data-act="backup">Cadangkan transaksi pribadi</button></div>'+
+     '<div class="hint" style="margin-top:6px">Cadangan ini hanya berisi transaksi akun yang sedang login. Impor cadangan lama dilakukan melalui halaman migrasi terpisah.</div>';
 
-  h+='<h2>Penyimpanan</h2><div class="note">Data tersimpan di HP ini saja dan tetap bisa dipakai tanpa internet. '+
-     'Kalau aplikasi dihapus atau HP rusak, data ikut hilang. Tekan Cadangkan secara rutin lalu simpan filenya ke Google Drive, LINE, atau email. '+
-     'Untuk pindah ke HP baru, pasang aplikasinya lalu tekan Pulihkan dan pilih file cadangan terakhir.</div>';
+  h+='<h2>Penyimpanan cloud</h2><div class="note">Rekening bersama dan transaksi pribadi tersimpan di Firebase. Perubahan dapat muncul di perangkat lain yang login. Gunakan akun masing-masing. Cadangkan data secara berkala.</div>';
+  h+='<div class="note" style="margin-top:14px"><strong>Arsip aplikasi lama.</strong> Jika ingin memeriksa data yang sebelumnya tersimpan hanya di perangkat ini, <a href="./buku-pemasukan-lokal-lama.html" style="color:var(--accent)">buka Buku Pemasukan versi lokal</a>. Catatan pada arsip tidak tersinkronisasi dengan Firebase.</div>';
   return h;
 }
 
 /* ---------- render ---------- */
 function render(){
+  if(!me)return;
   modeBadge();
   var v=$('view');
   if(S.tab==='home') v.innerHTML=viewHome();
@@ -530,37 +673,43 @@ function readForm(){
   if(a) f.amount=a.value.replace(/\D/g,''); if(d) f.date=d.value; if(n) f.note=n.value;
 }
 async function saveEntry(){
-  readForm(); var f=S.form, acc=accById(f.account);
-  if(!acc) return toast('Pilih rekening tujuan dulu.');
-  var amt=parseInt(f.amount,10); if(!(amt>0)) { toast('Isi jumlah pemasukan.'); var ai=$('amt'); if(ai) ai.focus(); return }
-  if(!/^\d{4}-\d{2}-\d{2}$/.test(f.date)) return toast('Isi tanggal masuk.');
-  if(S.busy) return; S.busy=true;
-  var editing=!!f.id;
-  var entry={id:f.id||uid(), date:f.date, account:acc.id, currency:acc.currency, amount:amt,
-    note:(f.note||'').trim(), createdAt:f.createdAt||Date.now(), updatedAt:Date.now(), deleted:false};
+  readForm();const f=S.form,acc=f&&accById(f.account);
+  if(!acc)return toast('Pilih rekening tujuan dulu.');
+  if(acc.active===false&&!f.id)return toast('Rekening tidak aktif. Pilih yang lain.');
+  const amount=Number(f.amount);
+  if(!Number.isSafeInteger(amount)||amount<=0||amount>1e12)return toast('Jumlah tidak valid.');
+  if(!validDay(f.date))return toast('Isi tanggal yang benar.');
+  if((f.note||'').length>250)return toast('Catatan maksimal 250 karakter.');
+  if(S.busy)return;S.busy=true;
+  const editing=!!f.id,entry={id:f.id||uid(),date:f.date,account:acc.id,
+    currency:acc.currency,amount,note:(f.note||'').trim()};
   try{
-    await store.put(entry);
-    if(editing&&f.origDate&&f.origDate!==f.date){ var old=clone(entry); old.date=f.origDate; old.deleted=true; await store.put(old) }
-    LS.set('bp.lastAcc',acc.id);
+    await saveCloudEntry(entry);
+    LS.set('bp.family.lastAcc',acc.id);
     stamp(editing?'Diperbarui':'Tersimpan');
-    if(editing){ S.form=null; S.tab='list'; if(periodOf(entry.date)!==S.month) store.setMonth(periodOf(entry.date)); render() }
-    else {
-      S.form={id:null,origDate:null,date:f.date,account:acc.id,amount:'',note:''};
-      if(periodOf(entry.date)!==S.month) store.setMonth(periodOf(entry.date));
-      render(); var ai2=$('amt'); if(ai2) ai2.focus({preventScroll:true});
-    }
-    if(S.mode==='local') refresh();
-  }catch(e){ toast(errMsg(e)) }
-  S.busy=false;
+    if(editing){S.form=null;S.tab='list'}
+    else S.form={id:null,origDate:null,date:f.date,account:acc.id,amount:'',note:''};
+    if(periodOf(f.date)!==S.month)store.setMonth(periodOf(f.date));
+    render();
+    if(!editing&&$('amt'))$('amt').focus({preventScroll:true});
+  }catch(e){toast(cloudError(e))}
+  finally{S.busy=false}
 }
 var delArmed=null;
 async function deleteEntry(btn){
-  if(delArmed!==btn){ delArmed=btn; btn.classList.add('armed'); btn.textContent='Tekan lagi untuk hapus';
-    setTimeout(function(){ if(delArmed===btn){ delArmed=null; btn.classList.remove('armed'); btn.textContent='Hapus' } },3000); return }
-  delArmed=null; var f=S.form; if(!f||!f.id) return;
-  var src=(S.days[f.origDate]||{})[f.id]; var e=src?clone(src):{id:f.id,date:f.origDate};
-  e.deleted=true; e.updatedAt=Date.now(); e.date=f.origDate;
-  try{ await store.put(e); S.form=null; S.tab='list'; render(); toast('Pemasukan dihapus.') }catch(err){ toast(errMsg(err)) }
+  if(S.busy)return;
+  if(delArmed!==btn){
+    delArmed=btn;btn.classList.add('armed');btn.textContent='Tekan lagi untuk hapus';
+    setTimeout(function(){if(delArmed===btn){delArmed=null;if(btn.isConnected){btn.classList.remove('armed');btn.textContent='Hapus'}}},3000);return;
+  }
+  delArmed=null;
+  const f=S.form;if(!f||!f.id)return;
+  S.busy=true;
+  try{
+    await saveCloudEntry({id:f.id,date:f.origDate||f.date,deleted:true});
+    S.form=null;S.tab='list';render();toast('Transaksi pribadi dihapus. Laporan diperbarui.');
+  }catch(e){toast(cloudError(e))}
+  finally{S.busy=false}
 }
 function openEdit(id,date){
   var e=(S.days[date]||{})[id]; if(!e) return;
@@ -583,68 +732,54 @@ async function saveCfg(){
   var cfg=readSettingsCfg();
   try{await store.saveCfg(cfg);render();stamp('Pengaturan')}catch(e){toast(errMsg(e))}
 }
+async function reloadAccounts(){
+  const snap=await getDocs(collection(db,'families',FAMILY_ID,'accounts'));
+  S.cfg.accounts=snap.docs.map(fromAccount).sort((a,b)=>a.name.localeCompare(b.name,'id'));
+}
 async function addAccount(){
-  if(S.busy) return;
-  var n=$('newAccName'), no=$('newAccNo'), t=$('newAccType');
-  var name=n?n.value.trim():'';
-  if(!name){toast('Isi nama rekening.');if(n)n.focus();return}
-  if(name.length>100) return toast('Nama rekening terlalu panjang.');
-  var type=t&&/^(yucho|paypay|idr)$/.test(t.value)?t.value:'yucho';
-  var cfg=readSettingsCfg();
-  cfg.accounts.push({id:'acc_'+uid(),name:name,no:no?no.value.trim():'',type:type,
-    currency:type==='idr'?'IDR':'JPY',active:true});
-  S.busy=true;
-  try{await store.saveCfg(cfg);render();stamp('Rekening baru');toast('Rekening berhasil ditambahkan.')}
-  catch(e){toast(errMsg(e))}
-  S.busy=false;
-}
-function accountUsed(id){
-  for(var d of Object.keys(local.days)){
-    var items=local.days[d]||{};
-    for(var k of Object.keys(items)){
-      if(items[k]&&items[k].account===id) return true;
-    }
-  }
-  return false;
-}
-var removeAccArmed=null,removeAccTimer=null;
-async function removeAccount(btn){
-  if(S.busy) return;
-  var id=btn.dataset.accId, acct=accById(id);
-  if(!acct||acct.active===false) return;
-  var used=accountUsed(id);
-  if(removeAccArmed!==btn){
-    if(removeAccArmed){removeAccArmed.classList.remove('armed');removeAccArmed.textContent='Hapus / Nonaktifkan'}
-    removeAccArmed=btn;btn.classList.add('armed');
-    btn.textContent=used?'Tekan lagi untuk nonaktifkan':'Tekan lagi untuk hapus';
-    clearTimeout(removeAccTimer);
-    removeAccTimer=setTimeout(function(){
-      if(removeAccArmed===btn){removeAccArmed=null;btn.classList.remove('armed');btn.textContent='Hapus / Nonaktifkan'}
-    },3500);
-    return;
-  }
-  removeAccArmed=null;clearTimeout(removeAccTimer);
-  var cfg=readSettingsCfg();
-  if(used) cfg.accounts.forEach(function(a){if(a.id===id)a.active=false});
-  else cfg.accounts=cfg.accounts.filter(function(a){return a.id!==id});
+  if(S.busy)return;
+  const n=$('newAccName'),no=$('newAccNo'),t=$('newAccType');
+  const name=n?n.value.trim():'';
+  if(!name)return toast('Isi nama rekening.');
+  if(name.length>100||((no?.value||'').length>100))return toast('Nama atau nomor rekening terlalu panjang.');
+  const type=t&&/^(yucho|paypay|idr)$/.test(t.value)?t.value:'yucho';
   S.busy=true;
   try{
-    await store.saveCfg(cfg);
-    if(S.filterAcc===id) S.filterAcc='all';
-    if(S.form&&S.form.account===id&&!S.form.id) S.form.account='';
-    render();toast(used?'Rekening dinonaktifkan. Riwayat tetap tersimpan.':'Rekening tanpa transaksi dihapus.');
-  }catch(e){toast(errMsg(e))}
-  S.busy=false;
+    online();who();
+    await setDoc(accountRef('acc_'+uid()),{name,no:(no?.value||'').trim(),type,
+      currency:type==='idr'?'IDR':'JPY',active:true});
+    await reloadAccounts();render();toast('Rekening bersama ditambahkan untuk dua akun.');
+  }catch(e){toast(cloudError(e))}
+  finally{S.busy=false}
+}
+var removeAccArmed=null;
+async function removeAccount(btn){
+  if(S.busy)return;
+  const id=btn.dataset.accId,account=accById(id);
+  if(!account||account.active===false)return;
+  if(removeAccArmed!==btn){
+    removeAccArmed=btn;btn.classList.add('armed');btn.textContent='Tekan lagi untuk nonaktifkan';
+    setTimeout(function(){if(removeAccArmed===btn){removeAccArmed=null;if(btn.isConnected){btn.classList.remove('armed');btn.textContent='Nonaktifkan'}}},3500);
+    return;
+  }
+  removeAccArmed=null;S.busy=true;
+  try{
+    online();who();
+    await updateDoc(accountRef(id),{active:false});
+    await reloadAccounts();if(S.filterAcc===id)S.filterAcc='all';render();
+    toast('Rekening dinonaktifkan bersama. Riwayat tetap aman.');
+  }catch(e){toast(cloudError(e))}
+  finally{S.busy=false}
 }
 async function reactivateAccount(btn){
-  if(S.busy) return;
-  var id=btn.dataset.accId, cfg=readSettingsCfg();
-  var found=false;
-  cfg.accounts.forEach(function(a){if(a.id===id){a.active=true;found=true}});
-  if(!found) return;
+  if(S.busy)return;
+  const id=btn.dataset.accId;if(!accById(id))return;
   S.busy=true;
-  try{await store.saveCfg(cfg);render();toast('Rekening diaktifkan kembali.')}catch(e){toast(errMsg(e))}
-  S.busy=false;
+  try{
+    online();who();await updateDoc(accountRef(id),{active:true});
+    await reloadAccounts();render();toast('Rekening diaktifkan untuk kedua akun.');
+  }catch(e){toast(cloudError(e))}
+  finally{S.busy=false}
 }
 
 /* ---------- export / backup ---------- */
@@ -670,29 +805,15 @@ function flatten(days){
 async function csvMonth(){ var es=monthEntries().slice().reverse(); if(!es.length) return toast('Belum ada data di periode ini.'); var r=periodRange(S.month); offerFile('pemasukan-'+r.start+'-sd-'+r.end+'.csv',toCSV(es)) }
 async function csvAll(){ try{ var es=flatten(await store.allDays()); if(!es.length) return toast('Belum ada data.'); offerFile('pemasukan-semua-'+today()+'.csv',toCSV(es)) }catch(e){ toast(errMsg(e)) } }
 async function backup(){
-  var days=await store.allDays();
-  var ok=await offerFile('cadangan-pemasukan-'+today()+'.json',JSON.stringify({app:'buku-pemasukan',version:2,cfg:S.cfg,days:days}));
-  if(ok){ LS.set('bp.lastBackup',Date.now()); if(S.tab==='home') render() }
-}
-async function restore(file){
   try{
-    var data=JSON.parse(await file.text()); if(!data||!data.days) throw new Error('bad');
-    var n=0;
-    for(var d of Object.keys(data.days)){
-      if(!/^\d{4}-\d{2}-\d{2}$/.test(d)) continue;
-      var m=data.days[d]||{};
-      for(var id of Object.keys(m)){ var e=m[id]; if(!e||!e.id||!(e.amount>0)) continue; await store.put(e); if(!e.deleted) n++ }
-    }
-    if(data.cfg){
-      var restoredCfg=normCfg(data.cfg), mergedCfg=clone(S.cfg), ids={};
-      restoredCfg.accounts.forEach(function(a){ids[a.id]=true});
-      mergedCfg.accounts=restoredCfg.accounts.concat(S.cfg.accounts.filter(function(a){return !ids[a.id]}));
-      mergedCfg.rate=restoredCfg.rate;
-      await store.saveCfg(mergedCfg);
-    }
-    store.setMonth(S.month); toast(n+' transaksi dipulihkan.'); render();
-  }catch(e){ toast(e&&e.code?errMsg(e):'File cadangan tidak dikenali.') }
+    const days=await store.allDays();
+    const label=me&&me.uid===ownerUid?'anda':'istri';
+    const ok=await offerFile('cadangan-cloud-'+label+'-'+today()+'.json',
+      JSON.stringify({app:'buku-pemasukan-cloud',version:1,accountRole:label,cfg:S.cfg,days:days}));
+    if(ok){LS.set('bp.family.backup',Date.now());toast('Cadangan transaksi pribadi sudah disiapkan.')}
+  }catch(e){toast(cloudError(e))}
 }
+function restore(){toast('Untuk migrasi data lama, gunakan halaman migrasi yang terpisah.');}
 
 /* ---------- events ---------- */
 document.addEventListener('click',function(ev){
@@ -718,7 +839,8 @@ document.addEventListener('click',function(ev){
   else if(act==='csvMonth') csvMonth();
   else if(act==='csvAll') csvAll();
   else if(act==='backup') backup();
-  else if(act==='restore') $('restoreFile').click();
+  else if(act==='restore') restore();
+  else if(act==='logout') signOut(fbAuth).catch(e=>toast(cloudError(e)));
   if(act==='prev'||act==='next'){ if(S.tab==='home'||S.tab==='list'||S.tab==='settings') render() }
 });
 document.addEventListener('input',function(ev){
@@ -730,18 +852,55 @@ document.addEventListener('input',function(ev){
 document.addEventListener('change',function(ev){
   var t=ev.target;
   if(t.id==='fAcc'){ S.filterAcc=t.value; $('listBody').innerHTML=listBody() }
-  else if(t.id==='restoreFile'&&t.files&&t.files[0]){ restore(t.files[0]); t.value='' }
+  else if(t.id==='restoreFile'&&t.files&&t.files[0]){ toast('Pulihkan data hanya melalui prosedur migrasi khusus.');t.value='' }
 });
 document.addEventListener('keydown',function(ev){
   if(ev.key==='Enter'&&S.tab==='add'&&ev.target.tagName==='INPUT'){ ev.preventDefault(); saveEntry() }
 });
 
-/* ---------- start ---------- */
-(function init(){
-  S.mode='local'; loadLocal(); localMonth(); render();
-  try{ if(navigator.storage&&navigator.storage.persist) navigator.storage.persist() }catch(e){}
-  if('serviceWorker' in navigator) window.addEventListener('load',function(){ navigator.serviceWorker.register('./sw.js').catch(function(){}) });
-})();
+/* ---------- authentication ---------- */
+function setLoginStatus(s){$('loginStatus').textContent=s}
+function showLogin(){
+  stopAll();ready=false;me=null;ownerUid=null;spouseUid=null;myTotal=null;spouseTotal=null;
+  S.days={};S.cfg.accounts=[];S.form=null;S.mode=null;S.tab='home';S.filterAcc='all';S.q='';
+  $('familyApp').classList.add('hidden');$('familyTabs').classList.add('hidden');
+  $('authGate').classList.remove('hidden');$('loginPassword').value='';
+}
+async function setupUser(user){
+  const family=await getDoc(doc(db,'families',FAMILY_ID));
+  if(fbAuth.currentUser?.uid!==user.uid)return;
+  if(!family.exists())throw Error('Data keluarga tidak ditemukan.');
+  const data=family.data();
+  if(user.uid!==data.ownerUid&&user.uid!==data.spouseUid)
+    throw Error('Akun ini tidak terdaftar sebagai anggota keluarga.');
+  const snapshot=await getDocs(collection(db,'families',FAMILY_ID,'accounts'));
+  if(fbAuth.currentUser?.uid!==user.uid)return;
+  if(!snapshot.size)throw Error('Rekening keluarga belum ada di Firebase.');
+  ownerUid=data.ownerUid;spouseUid=data.spouseUid;me=user;
+  S.cfg.accounts=snapshot.docs.map(fromAccount).sort((a,b)=>a.name.localeCompare(b.name,'id'));
+  S.cfg.rate=Number(LS.get('bp.family.rate'))>0?Number(LS.get('bp.family.rate')):108;
+  S.mode='cloud';ready=true;S.month=periodOf(today());S.form=null;S.tab='home';
+  $('authGate').classList.add('hidden');$('familyApp').classList.remove('hidden');
+  $('familyTabs').classList.remove('hidden');
+  render();watchAccounts();watchMonth();
+}
+$('loginForm').addEventListener('submit',async function(ev){
+  ev.preventDefault();const btn=$('loginButton');btn.disabled=true;
+  setLoginStatus('Memeriksa akun...');
+  try{await signInWithEmailAndPassword(fbAuth,$('loginEmail').value.trim(),$('loginPassword').value)}
+  catch(e){setLoginStatus(cloudError(e))}
+  finally{btn.disabled=false;$('loginPassword').value=''}
+});
+onAuthStateChanged(fbAuth,async function(user){
+  showLogin();
+  if(!user){setLoginStatus('Firebase siap. Silakan masuk.');$('loginButton').disabled=false;return}
+  setLoginStatus('Mengambil rekening dan transaksi keluarga...');
+  try{await setupUser(user)}
+  catch(e){
+    setLoginStatus(cloudError(e));
+    try{await signOut(fbAuth)}catch(ignore){}
+  }
+},function(e){setLoginStatus(cloudError(e))});
 })();
 </script>
 </body>
